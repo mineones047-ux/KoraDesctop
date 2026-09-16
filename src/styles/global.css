@@ -1,0 +1,187 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme='dark'] {
+  --kora-bg: 10 10 10;
+  --kora-surface: 17 17 17;
+  --kora-card: 26 26 26;
+  --kora-border: 42 42 42;
+  --kora-text: 229 229 229;
+  --kora-muted: 115 115 115;
+  --kora-accent: 59 130 246;
+  --kora-accent-hover: 37 99 235;
+  --kora-success: 34 197 94;
+  --kora-warning: 234 179 8;
+  --kora-error: 239 68 68;
+}
+
+[data-theme='red'] {
+  --kora-bg: 18 10 10;
+  --kora-surface: 26 14 14;
+  --kora-card: 36 18 18;
+  --kora-border: 56 30 28;
+  --kora-text: 242 232 229;
+  --kora-muted: 154 133 131;
+  --kora-accent: 224 80 66;
+  --kora-accent-hover: 201 63 51;
+  --kora-success: 74 222 128;
+  --kora-warning: 251 191 36;
+  --kora-error: 248 113 113;
+}
+
+[data-theme='light'] {
+  --kora-bg: 245 245 245;
+  --kora-surface: 255 255 255;
+  --kora-card: 255 255 255;
+  --kora-border: 226 226 226;
+  --kora-text: 30 30 30;
+  --kora-muted: 120 120 120;
+  --kora-accent: 198 40 35;
+  --kora-accent-hover: 168 30 26;
+  --kora-success: 22 163 74;
+  --kora-warning: 202 138 4;
+  --kora-error: 220 38 38;
+}
+
+/* ── Retro: KОЯ-style (pixel font, hard shadows, scanlines) ── */
+[data-theme='retro'] {
+  --kora-bg: 43 51 80;
+  --kora-surface: 58 64 80;
+  --kora-card: 65 74 94;
+  --kora-border: 89 100 124;
+  --kora-text: 232 236 246;
+  --kora-muted: 139 148 173;
+  --kora-accent: 43 92 217;
+  --kora-accent-hover: 58 107 234;
+  --kora-success: 52 211 153;
+  --kora-warning: 250 204 21;
+  --kora-error: 248 113 113;
+}
+
+[data-theme='retro']::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.06) 0 2px, transparent 2px 4px);
+}
+
+[data-theme='retro'] button {
+  border-radius: 14px;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+[data-theme='retro'] button:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='retro'] button:active {
+  transform: translate(0, 0);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='retro'] .rounded-full {
+  border-radius: 999px;
+}
+
+[data-theme='retro'] input,
+[data-theme='retro'] select,
+[data-theme='retro'] textarea {
+  border-width: 2px;
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.3);
+}
+
+[data-theme='retro'] .font-pixel {
+  font-family: 'Press Start 2P', monospace;
+}
+
+[data-theme='retro'] h2,
+[data-theme='retro'] h3 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  line-height: 1.6;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: rgb(var(--kora-bg));
+  color: rgb(var(--kora-text));
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+::selection {
+  background-color: rgba(var(--kora-accent), 0.3);
+}
+
+input, textarea, select {
+  outline: none;
+}
+
+textarea {
+  field-sizing: content;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

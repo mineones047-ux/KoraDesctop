@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-electron/
+release/
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# Tool caches
+.freebuff/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor junk
+Thumbs.db
+.DS_Store
+.idea/
+*.swp
