@@ -1,138 +1,146 @@
 # Kora — AI Desktop Assistant
 
-Локальный ИИ-ассистент для рабочего стола в стиле JARVIS. Приложение на **Electron**: чат с LLM
-плюс **ReAct-агент**, который сам умеет работать с файлами, shell, вебом и системой.
+A local-first AI desktop assistant in the spirit of JARVIS. Built with **Electron**: an LLM chat
+plus a **ReAct agent** that can work with files, the shell, the web and the system on its own.
 
-Провайдеры — локальные (**LM Studio**, **Ollama**) или облачные (любой OpenAI-совместимый API,
-**Anthropic**, **OpenRouter**, Gemini, Groq, DeepSeek, Mistral, xAI). Есть синтез и распознавание
-речи, а также расширение инструментов через **MCP**-серверы.
+Providers are local (**LM Studio**, **Ollama**) or cloud-based (any OpenAI-compatible API,
+**Anthropic**, **OpenRouter**, Gemini, Groq, DeepSeek, Mistral, xAI). It includes speech synthesis
+and recognition, and tool extension through **MCP** servers.
 
-## Возможности
+## Features
 
-- 💬 **Чат со стримингом** — ответы приходят токенами, поддержка markdown, озвучка.
-- 🧠 **ReAct-агент** — цикл «мысль → инструмент → наблюдение» с бюджетом итераций, защитой от
-  зацикливания, повторных вызовов и галлюцинаций.
-- 🛠 **Инструменты** — файлы и папки, shell, grep, веб-поиск, буфер обмена, управление системой
-  (громкость, яркость, lock/sleep/shutdown), TTS. Опасные операции требуют подтверждения.
-- 🔌 **MCP** — подключение любых Model Context Protocol серверов (управление и диагностика в UI).
-- 🕸 **Граф Obsidian** — визуализация хранилища заметок: теги, ссылки, физическая раскладка на canvas.
-- 🔊 **Голос** — синтез (msedge-tts) и распознавание (Web Speech API), язык по локали интерфейса.
-- 🎨 **Темы** — Dark / Crimson / Light / Retro; локализация **RU / EN**.
+- 💬 **Streaming chat** — token-by-token responses, markdown rendering, read-aloud.
+- 🧠 **ReAct agent** — a "thought → tool → observation" loop with an iteration budget and guards
+  against loops, repeated calls and hallucination.
+- 🛠 **Tools** — files and folders, shell, grep, web search, clipboard, system control
+  (volume, brightness, lock/sleep/shutdown), TTS. Dangerous operations require confirmation.
+- 🔌 **MCP** — connect any Model Context Protocol server (managed and diagnosed from the UI).
+- 🕸 **Obsidian graph** — visualize a notes vault: tags, links, force layout on canvas.
+- 🔊 **Voice** — synthesis (msedge-tts) and recognition (Web Speech API), language follows the UI locale.
+- 🎨 **Themes** — Dark / Crimson / Light / Retro; **EN / RU** localization.
 
-## Требования
+## Requirements
 
-- **Node.js 18+** и npm
+- **Node.js 18+** and npm
 - Windows / macOS / Linux
-- Для локальных моделей — запущенный LM Studio (порт `1234`) или Ollama (порт `11434`)
+- For local models — a running LM Studio (port `1234`) or Ollama (port `11434`)
 
-## Установка
+## Install
 
 ```bash
 npm install
 ```
 
-## Запуск (разработка)
+## Run (development)
 
 ```bash
 npm run dev
 ```
 
-Скрипт компилирует main-процесс (`tsc`), поднимает Vite dev-сервер и запускает Electron.
-Альтернатива для Windows — `start.bat`.
+The script compiles the main process (`tsc`), starts the Vite dev server and launches Electron.
+Windows alternative: `start.bat`.
 
-## Сборка
-
-```bash
-npm run build            # production-сборка рендерера (Vite → dist/)
-npm run electron:build   # сборка + инсталлятор (electron-builder → release/)
-```
-
-## Тесты и проверки
+## Build
 
 ```bash
-npm test                                  # vitest run — 100 тестов
-npx tsc -p tsconfig.json --noEmit         # typecheck рендерера
-npx tsc -p tsconfig.electron.json         # typecheck + сборка main-процесса
-npx tsc -p tsconfig.node.json --noEmit    # typecheck конфигов сборки
+npm run build            # production renderer build (Vite -> dist/)
+npm run electron:build   # build + installer (electron-builder -> release/)
 ```
 
-## Архитектура
+## Tests and checks
 
-Два процесса и мост между ними:
+```bash
+npm test                                  # vitest run — 100 tests
+npx tsc -p tsconfig.json --noEmit         # renderer typecheck
+npx tsc -p tsconfig.electron.json         # main-process typecheck + build
+npx tsc -p tsconfig.node.json --noEmit    # build-config typecheck
+```
+
+## Architecture
+
+Two processes and the bridge between them:
 
 ```
 ┌─────────────────────┐   window.kora.*   ┌──────────────────────────┐
 │  Renderer (React)   │ ◄──── preload ───►│  Main (Electron/Node)    │
-│  src/               │    IPC-каналы     │  electron/               │
-│  UI + агент + чат   │                   │  файлы, shell, сеть, TTS │
+│  src/               │    IPC channels   │  electron/               │
+│  UI + agent + chat  │                   │  fs, shell, net, TTS     │
 └─────────────────────┘                   └──────────────────────────┘
 ```
 
-- **Renderer** (`src/`, собирает Vite) — React 18 + TypeScript + Tailwind: UI, чат, ReAct-агент,
-  реестр инструментов.
-- **Main** (`electron/`, компилирует `tsc` в `dist-electron/`) — все привилегированные операции:
-  файловая система, shell, сеть, TTS, MCP, конфиг, аудит. Рендерер не имеет доступа к Node —
-  только IPC-каналы `window.kora.*`, объявленные в `preload.ts`.
-- **Общая логика безопасности** (`electron/lib/`) — чистые модули без electron-импортов, поэтому
-  их используют и main-процесс, и тесты (тесты проверяют ровно тот код, что работает в проде).
+- **Renderer** (`src/`, bundled by Vite) — React 18 + TypeScript + Tailwind: UI, chat, ReAct agent,
+  tool registry.
+- **Main** (`electron/`, compiled by `tsc` into `dist-electron/`) — every privileged operation:
+  filesystem, shell, network, TTS, MCP, config, audit. The renderer has no direct Node access —
+  only the `window.kora.*` IPC channels declared in `preload.ts`.
+- **Shared security logic** (`electron/lib/`) — pure modules with no Electron imports, so both the
+  main process and the tests use them (tests exercise exactly the code that runs in production).
 
-### Путь сообщения пользователя
+### Message flow
 
-`useUnifiedChat.sendMessage()` решает через `needsAgent()`:
+`useUnifiedChat.sendMessage()` decides via `needsAgent()`:
 
-1. **Разговор / `!`-команды** → `useChat` (стриминг LLM + команды из `lib/commands.ts`).
-2. **Задача с инструментами** → `useReActAgent.startCycle()` (цикл «мысль → инструмент → наблюдение»),
-   результат дописывается в тот же чат.
+1. **Conversation / `!` commands** → `useChat` (LLM streaming + commands from `lib/commands.ts`).
+2. **Tool-backed task** → `useReActAgent.startCycle()` (the "thought → tool → observation" loop),
+   whose result is appended to the same chat.
 
-## Структура проекта
+## Project structure
 
 ```
 src/
-  App.tsx                     — композиция UI
-  hooks/useUnifiedChat.ts     — развилка чат/агент
-  hooks/useChat.ts            — чат, стриминг, !-команды, Stop
-  agent/orchestrator.ts       — ReAct-цикл, retry-политика, grounding
-  agent/planner.ts            — state-машина агента
-  agent/memory.ts             — память диалога (ref-зеркала)
-  agent/guards.ts             — бюджет итераций, loop-guard, повторения
-  agent/tool-registry.ts      — реестр инструментов + MCP
-  agent/intent.ts             — нужен ли агент
-  lib/commands.ts             — !-команды
-  lib/path-security.ts        — pre-check путей
+  App.tsx                     — UI composition
+  hooks/useUnifiedChat.ts     — chat/agent routing
+  hooks/useChat.ts            — chat, streaming, ! commands, Stop
+  agent/orchestrator.ts       — ReAct loop, retry policy, grounding
+  agent/planner.ts            — agent state machine
+  agent/memory.ts             — conversation memory (ref mirrors)
+  agent/guards.ts             — iteration budget, loop guard, repetition guard
+  agent/tool-registry.ts      — tool registry + MCP
+  agent/intent.ts             — whether the agent is needed
+  lib/commands.ts             — ! commands
+  lib/path-security.ts        — path pre-checks
   components/                 — UI (Chat, Sidebar, Settings, Graph, System, Agent)
 electron/
-  main.ts / preload.ts        — окно и мост window.kora.*
-  ipc/*.ts                    — IPC-хендлеры
-  lib/*.ts                    — shell / regex / web security (общие с тестами)
-  services/api.ts             — LLM-шлюз, retry, SSE
-  services/config.ts          — конфиг, шифрование ключей
-  services/mcp/               — MCP-клиент / менеджер / протокол
-  services/audit-log.ts       — аудит shell
+  main.ts / preload.ts        — window and the window.kora.* bridge
+  ipc/*.ts                    — IPC handlers
+  lib/*.ts                    — shell / regex / web security (shared with tests)
+  services/api.ts             — LLM gateway, retry, SSE
+  services/config.ts          — config, key encryption
+  services/mcp/               — MCP client / manager / protocol
+  services/audit-log.ts       — shell audit log
 ```
 
-## Конфигурация
+## Documentation
 
-Хранится в `~/.kora/`:
+- [Architecture](docs/ARCHITECTURE.md)
+- [Fixes journal](docs/FIXES.md)
+- [Security audit](docs/SECURITY_AUDIT.md)
+- [Security fixes](docs/SECURITY_FIXES.md)
+- [Code review](docs/CODE_REVIEW.md)
 
-- `config.json` — настройки (провайдер, модель, ключи, тема, язык, путь Obsidian). API-ключи
-  шифруются через `safeStorage` (префикс `enc:`); запись атомарная.
-- `chats.json` — история чатов (битый файл бэкапится в `.corrupt-*`).
-- `mcp.json` — список MCP-серверов.
-- `audit.log` — журнал shell-выполнений.
+## Configuration
 
-## Безопасность
+Stored in `~/.kora/`:
 
-- Electron с `contextIsolation`, `sandbox`, `nodeIntegration: false`; навигация ограничена.
-- Фильтр опасных shell-команд (включая pipe-to-shell), SSRF-защита `web:fetch`, ReDoS-защита grep,
-  блоклист системных путей.
-- Опасные инструменты и `!`-команды требуют явного подтверждения.
-- Команды из ответов модели **не исполняются автоматически** — показываются как текст.
+- `config.json` — settings (provider, model, keys, theme, language, Obsidian path). API keys are
+  encrypted with `safeStorage` (prefix `enc:`); writes are atomic.
+- `chats.json` — chat history (a corrupted file is backed up to `.corrupt-*`).
+- `mcp.json` — list of MCP servers.
+- `audit.log` — shell execution log.
 
-## Стек
+## Security
+
+- Electron with `contextIsolation`, `sandbox`, `nodeIntegration: false`; navigation is restricted.
+- Dangerous shell command filter (including pipe-to-shell), SSRF protection for `web:fetch`,
+  ReDoS protection for grep, and a system path blocklist.
+- Dangerous tools and `!` commands require explicit confirmation.
+- Commands found in model output are **never executed automatically** — they are shown as text.
+
+## Stack
 
 React 18 · TypeScript 5 · Tailwind CSS 3 · Electron 32 · Vite 5 · Vitest 4 · msedge-tts
 
-## Лицензия
+## License
 
-Не указана. Добавьте файл `LICENSE` и поле `license` в `package.json` перед публикацией.
+Not specified yet. Add a `LICENSE` file and a `license` field in `package.json` before publishing.
 
