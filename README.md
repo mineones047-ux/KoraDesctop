@@ -19,6 +19,26 @@ and recognition, and tool extension through **MCP** servers.
 - 🔊 **Voice** — synthesis (msedge-tts) and recognition (Web Speech API), language follows the UI locale.
 - 🎨 **Themes** — Dark / Crimson / Light / Retro; **EN / RU** localization.
 
+## Download
+
+### For users — get the ready-to-run app
+Check the [**Releases**](https://github.com/mineones047-ux/KoraDesctop/releases) page for a prebuilt
+installer (`.exe` on Windows, `.dmg` on macOS, `.AppImage` on Linux). If no release has been published
+yet, use one of the developer options below.
+
+### For developers — get the source code
+
+Using Git:
+
+```bash
+git clone https://github.com/mineones047-ux/KoraDesctop.git
+cd KoraDesctop
+```
+
+Without Git: open the repository page, click the green **Code → Download ZIP** button, then unpack the archive.
+
+Either way, continue with [Requirements](#requirements) and [Install](#install) below.
+
 ## Requirements
 
 - **Node.js 18+** and npm
