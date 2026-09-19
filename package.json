@@ -1,7 +1,26 @@
 {
   "name": "kora",
   "version": "1.0.0",
-  "description": "Kora - AI Desktop Assistant",
+  "description": "Kora - AI Desktop Assistant: local-first Electron app with an LLM chat and a ReAct agent that works with files, shell, web and system, plus MCP tool support.",
+  "license": "MIT",
+  "author": "mineones047-ux",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mineones047-ux/KoraDesctop.git"
+  },
+  "homepage": "https://github.com/mineones047-ux/KoraDesctop#readme",
+  "keywords": [
+    "ai",
+    "assistant",
+    "electron",
+    "react",
+    "typescript",
+    "llm",
+    "react-agent",
+    "mcp",
+    "lm-studio",
+    "ollama"
+  ],
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node scripts/dev.cjs",

@@ -134,5 +134,5 @@ React 18 · TypeScript 5 · Tailwind CSS 3 · Electron 32 · Vite 5 · Vitest 4 
 
 ## Лицензия
 
-Не указана. Добавьте файл `LICENSE` и поле `license` в `package.json` перед публикацией.
+Проект распространяется под лицензией **MIT** — подробности в файле [LICENSE](LICENSE).
 
