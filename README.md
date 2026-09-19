@@ -9,22 +9,15 @@ and recognition, and tool extension through **MCP** servers.
 
 ## Features
 
-- **Streaming chat** — token-by-token responses, markdown rendering, read-aloud.
-- **ReAct agent** — a "thought → tool → observation" loop with an iteration budget and guards
-- **Streaming chat** — token-by-token responses, markdown rendering, read-aloud.
-- **ReAct agent** — a "thought → tool → observation" loop with an iteration budget and guards
+- 💬 **Streaming chat** — token-by-token responses, markdown rendering, read-aloud.
+- 🧠 **ReAct agent** — a "thought → tool → observation" loop with an iteration budget and guards
   against loops, repeated calls and hallucination.
-- **Tools** — files and folders, shell, grep, web search, clipboard, system control
-- **Tools** — files and folders, shell, grep, web search, clipboard, system control
+- 🛠 **Tools** — files and folders, shell, grep, web search, clipboard, system control
   (volume, brightness, lock/sleep/shutdown), TTS. Dangerous operations require confirmation.
-- **MCP** — connect any Model Context Protocol server (managed and diagnosed from the UI).
-- **Obsidian graph** — visualize a notes vault: tags, links, force layout on canvas.
-- **Voice** — synthesis (msedge-tts) and recognition (Web Speech API), language follows the UI locale.
-- **Themes** — Dark / Crimson / Light / Retro; **EN / RU** localization.
-- **MCP** — connect any Model Context Protocol server (managed and diagnosed from the UI).
-- **Obsidian graph** — visualize a notes vault: tags, links, force layout on canvas.
-- **Voice** — synthesis (msedge-tts) and recognition (Web Speech API), language follows the UI locale.
-- **Themes** — Dark / Crimson / Light / Retro; **EN / RU** localization.
+- 🔌 **MCP** — connect any Model Context Protocol server (managed and diagnosed from the UI).
+- 🕸 **Obsidian graph** — visualize a notes vault: tags, links, force layout on canvas.
+- 🔊 **Voice** — synthesis (msedge-tts) and recognition (Web Speech API), language follows the UI locale.
+- 🎨 **Themes** — Dark / Crimson / Light / Retro; **EN / RU** localization.
 
 ## Requirements
 
