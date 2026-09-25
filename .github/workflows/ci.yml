@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Tests (vitest)
+        run: npm test
+
+      - name: Typecheck — renderer
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: Typecheck — main process
+        run: npx tsc -p tsconfig.electron.json
+
+      - name: Typecheck — build configs
+        run: npx tsc -p tsconfig.node.json --noEmit
+
+      - name: Build main-process bundle
+        run: npm run build:main
+
+      - name: Build renderer
+        run: npm run build
