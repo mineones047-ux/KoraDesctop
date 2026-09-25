@@ -1,0 +1,16 @@
+[package]
+name = "kora-security"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kora security core: shell filter, path policy, regex guard, SSRF guard (Rust port of electron/lib/* and src/lib/path-security.ts)"
+
+[dependencies]
+regex.workspace = true
+once_cell.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "kora-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kora persistence: config, chats, mcp.json and audit log with atomic writes (Rust port of electron/services/config.ts, ipc/chats.ts, services/mcp/config.ts, services/audit-log.ts)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rand.workspace = true

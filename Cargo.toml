@@ -1,0 +1,38 @@
+﻿# Kora — Rust workspace (see docs/ROADMAP.md §5 for the target architecture).
+#
+# Transition strategy: the Electron/React app in src/ + electron/ stays alive until the
+# Tauri shell passes the parity checklist (docs/ROADMAP.md §6.9). These crates are the
+# new core: pure logic, testable without any UI, reused by kora-cli and kora-desktop.
+[workspace]
+resolver = "2"
+members = [
+  "crates/kora-security",
+  "crates/kora-store",
+  "crates/kora-llm",
+  "crates/kora-mcp",
+]
+
+[workspace.package]
+version = "2.0.0-alpha.1"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/mineones047-ux/KoraDesctop"
+authors = ["mineones047-ux"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+once_cell = "1"
+thiserror = "1"
+tempfile = "3"
+rand = "0.8"
+futures-util = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "fs", "net"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
