@@ -13,8 +13,9 @@ export class LMStudioClient {
     messages: ChatMessage[],
     baseUrl?: string,
     temperature?: number,
+    jsonMode?: boolean,
   ): Promise<string> {
-    return APIClient.chat(messages, '', baseUrl || DEFAULT_BASE_URL, '', 'lmstudio', temperature)
+    return APIClient.chat(messages, '', baseUrl || DEFAULT_BASE_URL, '', 'lmstudio', temperature, jsonMode)
   }
 
   static async chatStream(
@@ -23,8 +24,9 @@ export class LMStudioClient {
     baseUrl?: string,
     temperature?: number,
     signal?: AbortSignal,
+    jsonMode?: boolean,
   ): Promise<void> {
-    return APIClient.chatStream(messages, onChunk, '', baseUrl || DEFAULT_BASE_URL, '', 'lmstudio', temperature, signal)
+    return APIClient.chatStream(messages, onChunk, '', baseUrl || DEFAULT_BASE_URL, '', 'lmstudio', temperature, signal, jsonMode)
   }
 
   static async listModels(baseUrl?: string): Promise<string[]> {

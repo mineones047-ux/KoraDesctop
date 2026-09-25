@@ -4,7 +4,7 @@ import { useReActAgent } from '../agent'
 import { needsAgent } from '../agent/intent'
 import type { ConfigData } from '../types'
 import type { Translations } from '../i18n/en'
-import { resolveProviderConfig } from '../lib/resolve-provider'
+import { resolveProviderConfig, resolveDecisionLlmOptions } from '../lib/resolve-provider'
 
 function toLlmOptions(config: ConfigData) {
   const base = resolveProviderConfig(config)
@@ -43,7 +43,7 @@ export function useUnifiedChat() {
 
       chat.appendMessage({ role: 'user', content })
 
-      await agentRef.current.startCycle(content, toLlmOptions(config))
+      await agentRef.current.startCycle(content, toLlmOptions(config), resolveDecisionLlmOptions(config))
 
       const result = agentRef.current.result
       if (result) {

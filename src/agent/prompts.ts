@@ -1,3 +1,11 @@
+/**
+ * System prompt builder for the agent.
+ *
+ * buildSystemPrompt() renders the tool catalogue (id, description, parameters,
+ * confirmation flag), the `!` command cheat-sheet and the JSON decision protocol.
+ * The model MUST answer with a single JSON object — parseAgentResponse()
+ * in orchestrator.ts depends on that exact shape.
+ */
 import type { ToolMetadata } from './planner'
 import { getAllToolMetadata } from './tool-registry'
 
@@ -54,4 +62,38 @@ Rules:
 3. You have NO built-in knowledge of the user's file system. Always call a tool (dir, file, grep, stat, exists, shell, search) and wait for its result before describing any file, folder, or search output.
 4. Prefer chaining multiple tool calls when a task needs several steps.
 5. Be concise and clear. If you cannot know an answer without a tool, use the tool.`
+}
+
+/**
+ * System prompt for the LARGE model's final-answer turn in two-tier routing:
+ * the small tier produced the tool decisions; this call turns the conversation
+ * (tool observations included) into the prose the user reads.
+ */
+export function buildFinalAnswerPrompt(): string {
+  return `You are Kora, a desktop AI assistant. The tool-use phase of the task is over.
+
+Write ONLY the final answer for the user, based on the conversation provided (tool observations included).
+
+Rules:
+1. Answer in the language of the user's request.
+2. Stay faithful to the tool results: never invent file contents, listings or command output; if a tool failed, say so honestly.
+3. Be concise and well structured; plain text with light markdown is fine.
+4. Output the answer itself — no JSON, no wrapping the whole reply in code fences, no commentary about these instructions.`
+}
+
+/**
+ * Prompt for compressing dropped history into one compact note (ROADMAP
+ * Phase 0 "token budget + summarisation for memory").
+ */
+export function buildMemorySummaryPrompt(): string {
+  return `You are Kora's memory compressor. Summarize the dropped conversation segment below into a single compact note for an AI assistant that continues this session.
+
+Rules:
+1. Keep: user goals, decisions, file paths, command results, open problems.
+2. Drop: chatter, pleasantries, repeated tool output (keep only conclusions).
+3. Plain text, no preamble, at most 150 words.
+4. Write the note in the language of the conversation.
+
+Dropped segment:
+`
 }

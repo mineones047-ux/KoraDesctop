@@ -1,3 +1,10 @@
+/**
+ * System control IPC handlers (system:*): power, volume, brightness, lock,
+ * process list/kill, openApp, window enumeration.
+ *
+ * Implemented with per-platform shell commands (PowerShell on Windows). openApp
+ * refuses a blocklist of system executables; killProcess validates the PID.
+ */
 import { ipcMain, shell } from 'electron'
 import { exec } from 'child_process'
 import os from 'os'

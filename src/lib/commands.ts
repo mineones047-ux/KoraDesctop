@@ -1,3 +1,11 @@
+/**
+ * `!` commands typed by the user in the chat (executed by useChat, no LLM involved).
+ *
+ * Commands listed in DANGEROUS_COMMANDS require an explicit `!confirm`; the
+ * confirmed retry runs with bypassConfirm=true so the user is not asked twice.
+ * `!calc` is a hand-written recursive-descent parser — never use eval here.
+ * Paths are pre-checked with validatePath(); the main process re-checks anyway.
+ */
 import type { Translations } from '../i18n/en'
 import type { MutableRefObject } from 'react'
 import { validatePath } from './path-security'

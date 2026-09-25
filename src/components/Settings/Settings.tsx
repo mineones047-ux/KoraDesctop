@@ -91,6 +91,8 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
         result = await window.kora.ai.listModels('lmstudio', baseUrl)
       } else if (provider === 'ollama') {
         result = await window.kora.ai.listModels('ollama', baseUrl)
+      } else if (provider === 'llamacpp') {
+        result = await window.kora.ai.listModels('llamacpp', baseUrl)
       } else if (provider === 'anthropic') {
         result = await window.kora.ai.listModels('anthropic')
       } else if (provider === 'openrouter' || provider === 'openai') {
@@ -111,7 +113,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
       loadModels(config.provider, baseUrl, config.apiKey)
     }, 400) // debounce: typing in apiKey/baseUrl fires one request per pause
     return () => clearTimeout(timer)
-  }, [config.provider, config.lmstudioUrl, config.ollamaUrl, config.apiBaseUrl, config.apiKey, loadModels])
+  }, [config.provider, config.lmstudioUrl, config.ollamaUrl, config.llamacppUrl, config.apiBaseUrl, config.apiKey, loadModels])
 
   useEffect(() => {
     window.kora.tts.voices()
@@ -198,7 +200,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
 
   const activeProvider = PROVIDERS.find((p) => p.id === config.provider) ?? PROVIDERS[0]
   const isLocal = !!activeProvider.local
-  const showUrl = config.provider === 'lmstudio' || config.provider === 'ollama' || config.provider === 'openai' || config.provider === 'custom'
+  const showUrl = config.provider === 'lmstudio' || config.provider === 'ollama' || config.provider === 'llamacpp' || config.provider === 'openai' || config.provider === 'custom'
   const currentStyle = STYLE_PRESETS.find((s) => Math.abs(s.value - config.temperature) < 0.05)?.label ?? null
 
   const inputCls =
@@ -392,10 +394,11 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                     <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.baseUrl}</label>
                     <input
                       type="text"
-                      value={config.provider === 'lmstudio' ? config.lmstudioUrl : config.provider === 'ollama' ? config.ollamaUrl : config.apiBaseUrl}
+                      value={config.provider === 'lmstudio' ? config.lmstudioUrl : config.provider === 'ollama' ? config.ollamaUrl : config.provider === 'llamacpp' ? (config.llamacppUrl ?? '') : config.apiBaseUrl}
                       onChange={(e) => {
                         if (config.provider === 'lmstudio') onUpdate('lmstudioUrl', e.target.value)
                         else if (config.provider === 'ollama') onUpdate('ollamaUrl', e.target.value)
+                        else if (config.provider === 'llamacpp') onUpdate('llamacppUrl', e.target.value)
                         else onUpdate('apiBaseUrl', e.target.value)
                       }}
                       className={inputCls}
@@ -439,7 +442,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       )}
                     </select>
                     <button
-                      onClick={() => loadModels(config.provider, showUrl ? (config.provider === 'lmstudio' ? config.lmstudioUrl : config.provider === 'ollama' ? config.ollamaUrl : config.apiBaseUrl) : activeProvider.baseUrl, config.apiKey)}
+                      onClick={() => loadModels(config.provider, showUrl ? (config.provider === 'lmstudio' ? config.lmstudioUrl : config.provider === 'ollama' ? config.ollamaUrl : config.provider === 'llamacpp' ? (config.llamacppUrl ?? '') : config.apiBaseUrl) : activeProvider.baseUrl, config.apiKey)}
                       className={secondaryBtnCls}
                     >
                       {t.settings.refresh}
@@ -458,6 +461,30 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                     />
                   )}
                   <p className="text-[10px] text-kora-muted mt-1">{t.settings.modelDesc}</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.decisionModel}</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={config.agentDecisionProvider ?? ''}
+                      onChange={(e) => onUpdate('agentDecisionProvider', e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="">{t.settings.decisionSameProvider}</option>
+                      {PROVIDERS.filter((p) => p.id !== 'custom').map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={config.agentDecisionModel ?? ''}
+                      onChange={(e) => onUpdate('agentDecisionModel', e.target.value)}
+                      className={inputCls}
+                      placeholder={t.settings.decisionModelPlaceholder}
+                    />
+                  </div>
+                  <p className="text-[10px] text-kora-muted mt-1">{t.settings.decisionHint}</p>
                 </div>
 
                 {!isLocal && (
@@ -659,6 +686,37 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
           {tab === 'voice' && (
             <div className="space-y-4">
               <p className="text-xs text-kora-muted leading-relaxed">{t.settings.voiceDesc}</p>
+
+              <div className="border-t border-kora-border pt-4 space-y-3">
+                <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.sttEngine}</label>
+                <select
+                  value={config.sttEngine ?? 'webspeech'}
+                  onChange={(e) => onUpdate('sttEngine', e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="webspeech">{t.settings.sttWebSpeech}</option>
+                  <option value="whisper">{t.settings.sttWhisper}</option>
+                </select>
+                {(config.sttEngine ?? 'webspeech') === 'whisper' && (
+                  <>
+                    <input
+                      type="text"
+                      value={config.whisperPath ?? ''}
+                      onChange={(e) => onUpdate('whisperPath', e.target.value)}
+                      className={inputCls}
+                      placeholder="C:\\whisper.cpp\\build\\bin\\whisper-cli.exe"
+                    />
+                    <input
+                      type="text"
+                      value={config.whisperModel ?? ''}
+                      onChange={(e) => onUpdate('whisperModel', e.target.value)}
+                      className={inputCls}
+                      placeholder="C:\\whisper.cpp\\models\\ggml-base.bin"
+                    />
+                  </>
+                )}
+                <p className="text-[10px] text-kora-muted leading-relaxed">{t.settings.whisperHint}</p>
+              </div>
               <div className="space-y-2">
                 {voices.map((v) => (
                   <div

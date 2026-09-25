@@ -1,3 +1,10 @@
+/**
+ * Append-only audit trail: ~/.kora/audit.log (JSON lines, 10 MB rotation).
+ *
+ * Every shell execution and other sensitive events are recorded here for
+ * forensics. Writing must never throw into the caller — failures are logged to
+ * the console instead.
+ */
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'

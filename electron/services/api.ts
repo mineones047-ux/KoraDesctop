@@ -1,3 +1,13 @@
+/**
+ * LLM gateway: HTTP + SSE access to every supported provider.
+ *
+ * Errors are classified into a FailoverReason and embedded as `[kora:<reason>]`
+ * in the message — that marker is a cross-process contract parsed by
+ * agent/guards.ts. fetchWithRetry retries only retryable reasons with jittered
+ * backoff / Retry-After; auth, unknown model and context overflow fail fast.
+ * SSE parsing always flushes the tail buffer (the last chunk is never lost) and
+ * releases the reader lock.
+ */
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -161,8 +171,30 @@ function getModel(model: string, provider: string): string {
   return model || 'gpt-3.5-turbo'
 }
 
-function buildBody(messages: ChatMessage[], model: string, provider: string, stream: boolean, temperature?: number): object {
+/**
+ * True when the server rejected the request because of the `response_format`
+ * parameter (unknown parameter / unsupported json mode). Such a rejection is
+ * safe to retry once without jsonMode; auth / model / context errors are
+ * never treated as json-mode rejections even if the body happens to mention
+ * the word (they fail fast by design).
+ */
+export function isJsonModeRejected(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? ''
+  if (/\[kora:(auth|model_not_found|context_overflow)\]/.test(msg)) return false
+  return /response_format|json_object|json mode|json format/i.test(msg)
+}
+
+export function buildBody(
+  messages: ChatMessage[],
+  model: string,
+  provider: string,
+  stream: boolean,
+  temperature?: number,
+  jsonMode = false,
+): object {
   if (provider === 'anthropic') {
+    // Anthropic has no `response_format` parameter — for it, JSON output is
+    // enforced by the prompt alone (the corrective-retry path still applies).
     const systemMsg = messages.find((m) => m.role === 'system')
     const chatMsgs = messages.filter((m) => m.role !== 'system')
     // Anthropic requires max_tokens. Its API does not support an unlimited response,
@@ -177,12 +209,17 @@ function buildBody(messages: ChatMessage[], model: string, provider: string, str
   }
 
   // OpenAI-compatible providers apply their own model limit when max_tokens is omitted.
-  return {
+  const body: Record<string, unknown> = {
     model,
     messages,
     temperature: temperature ?? 0.7,
     stream,
   }
+  // ROADMAP Phase 0 "structured output": server-side JSON constraint for agent
+  // decision calls — removes whole corrective-retry LLM passes. Providers that
+  // do not know the parameter are retried once without it (isJsonModeRejected).
+  if (jsonMode) body.response_format = { type: 'json_object' }
+  return body
 }
 
 function getEndpoint(baseUrl: string, provider: string): string {
@@ -263,18 +300,27 @@ export class APIClient {
     model: string,
     provider: string,
     temperature?: number,
+    jsonMode?: boolean,
   ): Promise<string> {
-    if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama') throw new Error('API key is required')
+    if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama' && provider !== 'llamacpp') throw new Error('API key is required')
 
     const endpoint = getEndpoint(baseUrl, provider)
     const finalModel = getModel(model, provider)
-    const body = buildBody(messages, finalModel, provider, false, temperature)
 
-    const response = await fetchWithRetry(endpoint, {
-      method: 'POST',
-      headers: getHeaders(apiKey, provider),
-      body: JSON.stringify(body),
-    })
+    const doFetch = (useJson: boolean) =>
+      fetchWithRetry(endpoint, {
+        method: 'POST',
+        headers: getHeaders(apiKey, provider),
+        body: JSON.stringify(buildBody(messages, finalModel, provider, false, temperature, useJson)),
+      })
+
+    let response: FetchResult
+    try {
+      response = await doFetch(jsonMode === true)
+    } catch (err) {
+      if (!jsonMode || !isJsonModeRejected(err)) throw err
+      response = await doFetch(false)
+    }
     if (response.body === undefined) {
       // unreachable: fetchWithRetry returns only on ok
       throw new LlmError('unknown', 'No response')
@@ -304,20 +350,29 @@ export class APIClient {
     model: string,
     provider: string,
     temperature?: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    jsonMode?: boolean,
   ): Promise<void> {
-    if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama') throw new Error('API key is required')
+    if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama' && provider !== 'llamacpp') throw new Error('API key is required')
 
     const endpoint = getEndpoint(baseUrl, provider)
     const finalModel = getModel(model, provider)
-    const body = buildBody(messages, finalModel, provider, true, temperature)
 
-    const response = await fetchWithRetry(endpoint, {
-      method: 'POST',
-      headers: getHeaders(apiKey, provider),
-      body: JSON.stringify(body),
-      signal,
-    })
+    const doFetch = (useJson: boolean) =>
+      fetchWithRetry(endpoint, {
+        method: 'POST',
+        headers: getHeaders(apiKey, provider),
+        body: JSON.stringify(buildBody(messages, finalModel, provider, true, temperature, useJson)),
+        signal,
+      })
+
+    let response: FetchResult
+    try {
+      response = await doFetch(jsonMode === true)
+    } catch (err) {
+      if (!jsonMode || !isJsonModeRejected(err)) throw err
+      response = await doFetch(false)
+    }
 
     const reader = response.response.body?.getReader()
     if (!reader) throw new Error('No response body')
@@ -363,7 +418,9 @@ export class APIClient {
     baseUrl: string,
     provider: string
   ): Promise<{ success: boolean; error?: string }> {
-    if (!apiKey) return { success: false, error: 'No API key provided' }
+    if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama' && provider !== 'llamacpp') {
+      return { success: false, error: 'No API key provided' }
+    }
 
     if (provider === 'anthropic') {
       try {

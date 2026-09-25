@@ -1,3 +1,11 @@
+/**
+ * Application configuration + IPC handlers (config:get / config:set).
+ *
+ * Stored in ~/.kora/config.json and written atomically (tmp + rename, mode 0600,
+ * serialised through a write queue). API keys are encrypted with Electron
+ * safeStorage and stored with the `enc:` prefix; legacy plaintext keys migrate on
+ * the first save. set() whitelists keys, validates types and clamps values.
+ */
 import { ipcMain, safeStorage } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
@@ -15,6 +23,7 @@ interface ConfigData {
   provider: string
   lmstudioUrl: string
   ollamaUrl: string
+  llamacppUrl?: string
   selectedModel: string
   apiKey: string
   apiBaseUrl: string
@@ -22,6 +31,8 @@ interface ConfigData {
   customProviders: CustomProvider[]
   systemPrompt: string
   temperature: number
+  agentDecisionModel?: string
+  agentDecisionProvider?: string
   activeTemplate: string
   ttsVoice: string
   theme: string
@@ -29,12 +40,16 @@ interface ConfigData {
   obsidianVaultPath: string
   graphLinkColor: string
   graphNodeColor: string
+  sttEngine?: string
+  whisperPath?: string
+  whisperModel?: string
 }
 
 const DEFAULT_CONFIG: ConfigData = {
   provider: 'lmstudio',
   lmstudioUrl: 'http://localhost:1234',
   ollamaUrl: 'http://localhost:11434',
+  llamacppUrl: 'http://localhost:8080',
   selectedModel: '',
   apiKey: '',
   apiBaseUrl: 'https://api.openai.com',
@@ -42,6 +57,8 @@ const DEFAULT_CONFIG: ConfigData = {
   customProviders: [],
   systemPrompt: 'You are Kora, a helpful AI assistant. Be concise and clear in your responses.',
   temperature: 0.7,
+  agentDecisionModel: '',
+  agentDecisionProvider: '',
   activeTemplate: 'default',
   ttsVoice: 'ru-RU-DmitryNeural',
   theme: 'red',
@@ -49,6 +66,9 @@ const DEFAULT_CONFIG: ConfigData = {
   obsidianVaultPath: '',
   graphLinkColor: '',
   graphNodeColor: '',
+  sttEngine: 'webspeech',
+  whisperPath: '',
+  whisperModel: '',
 }
 
 const ENC_PREFIX = 'enc:'
@@ -139,12 +159,15 @@ class Config {
       provider: 'string',
       lmstudioUrl: 'string',
       ollamaUrl: 'string',
+      llamacppUrl: 'string',
       selectedModel: 'string',
       apiKey: 'string',
       apiBaseUrl: 'string',
       apiModel: 'string',
       systemPrompt: 'string',
       temperature: 'number',
+      agentDecisionModel: 'string',
+      agentDecisionProvider: 'string',
       activeTemplate: 'string',
       ttsVoice: 'string',
       theme: 'string',
@@ -153,6 +176,9 @@ class Config {
       customProviders: 'object',
       graphLinkColor: 'string',
       graphNodeColor: 'string',
+      sttEngine: 'string',
+      whisperPath: 'string',
+      whisperModel: 'string',
     }
     const type = expectedType[key]
     if (!type) return

@@ -1,3 +1,16 @@
+/**
+ * ReAct agent loop: think -> call_tool -> observe -> ... -> finish.
+ *
+ * Bounded by CONFIG.agent.MAX_STEPS + IterationBudget, guarded by ToolLoopGuard /
+ * detectDegenerateRepetition / boundToolError, with a retry policy keyed on the
+ * `[kora:<reason>]` error markers produced by the LLM gateway.
+ *
+ * The model answers with a single JSON decision
+ * ({"action":"call_tool","tool":...} | {"action":"finish","answer":...});
+ * dangerous tools pause the loop for user confirmation (resumeAfterConfirmation),
+ * and Stop is checked after the LLM call *and* before tool execution.
+ * See docs/PROJECT_HANDOFF.md §4.3.
+ */
 import { useState, useCallback, useRef } from 'react'
 import { useAgent } from './planner'
 import { useMemory } from './memory'
@@ -14,7 +27,8 @@ import {
   detectDegenerateRepetition,
   isEmptyResponse,
 } from './guards'
-import { buildSystemPrompt } from './prompts'
+import { buildSystemPrompt, buildFinalAnswerPrompt, buildMemorySummaryPrompt } from './prompts'
+import { fitToTokenBudget } from './token-budget'
 import { CONFIG } from '../config'
 
 export interface AgentLLMOptions {
@@ -23,6 +37,8 @@ export interface AgentLLMOptions {
   apiKey?: string
   baseUrl?: string
   temperature?: number
+  /** Ask the gateway for server-side JSON (`response_format: json_object`). */
+  jsonMode?: boolean
 }
 
 export interface ReActResult {
@@ -42,6 +58,8 @@ interface AgentDecision {
 interface CycleContext {
   query: string
   llmOptions: AgentLLMOptions
+  /** Two-tier routing: small tier for decisions; null/absent = single tier. */
+  decisionLlmOptions?: AgentLLMOptions | null
 }
 
 const MAX_AGENT_STEPS = CONFIG.agent.MAX_STEPS
@@ -55,7 +73,7 @@ function summarizeResult(result: unknown): string {
   }
 }
 
-function parseAgentResponse(text: string): AgentDecision | null {
+export function parseAgentResponse(text: string): AgentDecision | null {
   let cleaned = text.trim()
   const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fence) cleaned = fence[1].trim()
@@ -119,6 +137,10 @@ export function useReActAgent() {
   const budgetRef = useRef<IterationBudget>(new IterationBudget(MAX_AGENT_STEPS))
   const loopGuardRef = useRef<ToolLoopGuard>(new ToolLoopGuard())
   const historyTrimRef = useRef(0)
+  /** Compacted note for history dropped by the token budget (per cycle). */
+  const summaryRef = useRef('')
+  /** The exact dropped text the current summary covers (avoid re-summarising). */
+  const summarizedForRef = useRef('')
 
   const stopRunning = useCallback(() => {
     runningRef.current = false
@@ -214,10 +236,24 @@ export function useReActAgent() {
       return
     }
 
+    // Two-tier routing (ROADMAP Phase 0): the small decision tier picks the
+    // next tool; the large model only writes the final answer (finish branch).
+    const decisionTier: AgentLLMOptions =
+      ctx.decisionLlmOptions &&
+      (ctx.decisionLlmOptions.provider !== ctx.llmOptions.provider ||
+        (ctx.decisionLlmOptions.model ?? '') !== (ctx.llmOptions.model ?? ''))
+        ? ctx.decisionLlmOptions
+        : ctx.llmOptions
+    const twoTierActive = decisionTier !== ctx.llmOptions
+
     const llmOptions: AgentLLMOptions = {
-      ...ctx.llmOptions,
+      ...decisionTier,
       // Low temperature is critical for reliable JSON/tool calls on local models
-      temperature: Math.min(typeof ctx.llmOptions.temperature === 'number' ? ctx.llmOptions.temperature : 1, 0.7),
+      temperature: Math.min(typeof decisionTier.temperature === 'number' ? decisionTier.temperature : 1, 0.7),
+      // Structured output (ROADMAP Phase 0): the decision call asks the gateway
+      // for response_format json_object so the model is constrained to valid
+      // JSON server-side; unsupported providers fall back transparently.
+      jsonMode: true,
     }
 
     // Ask the model. Retry policy (ported from Hermes):
@@ -227,6 +263,7 @@ export function useReActAgent() {
     // - rate_limit/server_error/network/timeout → backoff retries
     // - context_overflow → drop oldest half of history once
     let decision: AgentDecision | null = null
+    let lastMessages: { role: string; content: string }[] = []
     let correctionIdx = 0
     let transientRetries = 0
     let emptyCount = 0
@@ -236,13 +273,48 @@ export function useReActAgent() {
       let llmText: string
       try {
         const allEntries = getFullHistory()
+        // Hard fallback trim (context_overflow recovery, unchanged) …
         const trimOffset = Math.min(historyTrimRef.current, Math.max(0, allEntries.length - 4))
-        const history = allEntries.slice(trimOffset).map((e: MemoryEntry) => ({
+        // … then the token budget (ROADMAP Phase 0): bound what we send per
+        // call, dropping the oldest entries first and keeping a recent tail.
+        const fit = fitToTokenBudget(allEntries.slice(trimOffset), CONFIG.agent.HISTORY_TOKEN_BUDGET, 4)
+
+        // Summarise newly dropped history once per distinct segment. The note is
+        // injected as a system message; failures are non-fatal (the cycle simply
+        // continues without a summary).
+        if (fit.droppedText && fit.droppedText !== summarizedForRef.current) {
+          summarizedForRef.current = fit.droppedText
+          try {
+            const summaryInput =
+              (summaryRef.current ? `Existing note:\n${summaryRef.current}\n\n` : '') + fit.droppedText
+            const note = (
+              await streamDecisionText(
+                [
+                  {
+                    role: 'system',
+                    content: buildMemorySummaryPrompt() + summaryInput.slice(0, CONFIG.agent.SUMMARIZE_INPUT_CAP),
+                  },
+                  { role: 'user', content: 'Summarize the dropped segment above into the single compact note.' },
+                ],
+                { ...ctx.llmOptions, jsonMode: false },
+              )
+            ).trim()
+            if (note && !isEmptyResponse(note)) summaryRef.current = note
+          } catch {
+            if (abortRef.current) return
+          }
+          if (abortRef.current || !runningRef.current) return
+        }
+
+        const history = fit.kept.map((e: MemoryEntry) => ({
           role: e.role,
           content: e.content,
         }))
         const messages = [
           { role: 'system', content: buildSystemPrompt() },
+          ...(summaryRef.current
+            ? [{ role: 'system', content: `[Earlier conversation summary]\n${summaryRef.current}` }]
+            : []),
           ...history,
         ]
         const lastUser = [...history].reverse().find((m) => m.role === 'user')
@@ -252,6 +324,7 @@ export function useReActAgent() {
         if (RETRY_CORRECTIONS[correctionIdx]) {
           messages.push({ role: 'user', content: RETRY_CORRECTIONS[correctionIdx] })
         }
+        lastMessages = messages
         llmText = await streamDecisionText(messages, llmOptions)
       } catch (err) {
         if (abortRef.current) return
@@ -336,7 +409,26 @@ export function useReActAgent() {
         await runStep()
         return
       }
-      finishCycle({ success: true, answer: decision.answer || 'Task completed.' })
+      let answer = decision.answer || 'Task completed.'
+      if (twoTierActive) {
+        // Two-tier routing: the LARGE model turns the conversation into the
+        // final prose answer; the small tier only produced the JSON decision.
+        if (abortRef.current || !runningRef.current) return
+        try {
+          const answerMessages = [
+            { role: 'system' as const, content: buildFinalAnswerPrompt() },
+            ...lastMessages.filter((m) => m.role !== 'system' && !RETRY_CORRECTIONS.includes(m.content)),
+          ]
+          const big = (await streamDecisionText(answerMessages, { ...ctx.llmOptions, jsonMode: false })).trim()
+          if (big && !isEmptyResponse(big)) answer = big
+        } catch {
+          // Keep the small tier's answer rather than failing a finished cycle.
+          if (abortRef.current) return
+        }
+        if (abortRef.current || !runningRef.current) return
+        setLiveTranscript('')
+      }
+      finishCycle({ success: true, answer })
       return
     }
 
@@ -411,7 +503,7 @@ export function useReActAgent() {
     await runStep()
   }, [approveConfirmation, denyConfirmation, observeStep, runStep])
 
-  const startCycle = useCallback(async (query: string, llmOptions: AgentLLMOptions): Promise<void> => {
+  const startCycle = useCallback(async (query: string, llmOptions: AgentLLMOptions, decisionLlmOptions?: AgentLLMOptions | null): Promise<void> => {
     abortRef.current = false
     setResult(null)
     setCurrentPlan([])
@@ -422,7 +514,9 @@ export function useReActAgent() {
     budgetRef.current = new IterationBudget(MAX_AGENT_STEPS)
     loopGuardRef.current.reset()
     historyTrimRef.current = 0
-    cycleRef.current = { query, llmOptions }
+    summaryRef.current = ''
+    summarizedForRef.current = ''
+    cycleRef.current = { query, llmOptions, decisionLlmOptions: decisionLlmOptions ?? null }
     runningRef.current = true
     setIsRunning(true)
 

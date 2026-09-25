@@ -76,11 +76,21 @@ const ru: Translations = {
     precise: 'Точный (0)',
     balanced: 'Сбалансированный (1)',
     creative: 'Креативный (2)',
+    decisionModel: 'Модель решений агента (двухуровневый routing)',
+    decisionSameProvider: 'Как у основной модели',
+    decisionModelPlaceholder: 'ID лёгкой модели (напр. qwen2.5-7b)',
+    decisionHint:
+      'Лёгкая модель выбирает инструменты во время работы агента, основная — пишет финальный ответ. Пусто = одна модель для всего.',
     voice: 'Голос (Text-to-Speech)',
     testConnection: 'Проверить соединение',
     testing: 'Проверка...',
     connectionSuccess: 'Соединение успешно!',
     connectionError: 'Ошибка:',
+    sttEngine: 'Движок голосового ввода',
+    sttWebSpeech: 'Системный (Web Speech API)',
+    sttWhisper: 'Локальный (whisper.cpp)',
+    whisperHint:
+      'whisper.cpp распознаёт офлайн: укажите путь к whisper-cli(.exe) и ggml-модели (напр. ggml-base.bin) из github.com/ggerganov/whisper.cpp. Системный движок доступен не во всех webview — локальный работает всегда.',
     language: 'Язык',
     languageDesc: 'Выберите язык интерфейса',
     tabs: {

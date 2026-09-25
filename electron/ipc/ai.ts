@@ -1,3 +1,11 @@
+/**
+ * LLM IPC handlers (ai:*): chat, chatStream, listModels, testConnection.
+ *
+ * chatStream creates a one-shot reply channel plus a `<channel>:ctl` control
+ * channel so the renderer can abort with '[ABORT]'; '[DONE]' is always sent in
+ * the finally block. Local providers (LM Studio/Ollama) are routed through
+ * LMStudioClient, everything else through APIClient (services/api.ts).
+ */
 import { ipcMain, BrowserWindow } from 'electron'
 import { APIClient } from '../services/api'
 import { LMStudioClient } from '../services/lmstudio'
@@ -7,9 +15,9 @@ export function registerAIHandlers(getWindow: () => BrowserWindow | null) {
   const win = (): BrowserWindow | null => getWindow()
   ipcMain.handle('ai:chat', async (_event, messages, options) => {
     if (options.provider === 'lmstudio' || options.provider === 'ollama') {
-      return LMStudioClient.chat(messages, options.baseUrl, options.temperature)
+      return LMStudioClient.chat(messages, options.baseUrl, options.temperature, options.jsonMode)
     }
-    return APIClient.chat(messages, options.apiKey, options.baseUrl, options.model, options.provider, options.temperature)
+    return APIClient.chat(messages, options.apiKey, options.baseUrl, options.model, options.provider, options.temperature, options.jsonMode)
   })
 
   ipcMain.on('ai:chatStream', async (event, messages, options, channel) => {
@@ -36,9 +44,9 @@ export function registerAIHandlers(getWindow: () => BrowserWindow | null) {
 
     try {
       if (options.provider === 'lmstudio' || options.provider === 'ollama') {
-        await LMStudioClient.chatStream(messages, send, options.baseUrl, options.temperature, controller.signal)
+        await LMStudioClient.chatStream(messages, send, options.baseUrl, options.temperature, controller.signal, options.jsonMode)
       } else {
-        await APIClient.chatStream(messages, send, options.apiKey, options.baseUrl, options.model, options.provider, options.temperature, controller.signal)
+        await APIClient.chatStream(messages, send, options.apiKey, options.baseUrl, options.model, options.provider, options.temperature, controller.signal, options.jsonMode)
       }
     } catch (error) {
       // Aborted by user — end silently, partial content is already delivered

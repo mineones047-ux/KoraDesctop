@@ -1,3 +1,12 @@
+/**
+ * Filesystem IPC handlers (fs:*).
+ *
+ * Every path goes through resolveSafePath() (quote stripping, `~` expansion,
+ * path.resolve, length cap) and write/delete/rename/mkdir additionally through
+ * assertNotBlockedWrite() (System32, Program Files, Startup, .ssh, ...).
+ * Writes are atomic (tmp + rename with a crypto suffix); grep is ReDoS-guarded
+ * via electron/lib/regex-security.ts and skips node_modules/.git/hidden dirs.
+ */
 import { ipcMain } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'

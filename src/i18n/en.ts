@@ -38,7 +38,10 @@ export interface Translations {
     responseStyle: string; responseStyleDesc: string
     styleConcise: string; styleBalanced: string; styleDetailed: string
     voiceDesc: string; previewVoice: string
+    sttEngine: string; sttWebSpeech: string; sttWhisper: string; whisperHint: string
     modelDesc: string; apiKeyDesc: string
+    decisionModel: string; decisionSameProvider: string
+    decisionModelPlaceholder: string; decisionHint: string
     urlDesc: string
     vaultPath: string; vaultPathDesc: string; pickFolder: string
   }
@@ -150,11 +153,21 @@ const en: Translations = {
     precise: 'Precise (0)',
     balanced: 'Balanced (1)',
     creative: 'Creative (2)',
+    decisionModel: 'Agent decision model (two-tier routing)',
+    decisionSameProvider: 'Same as main provider',
+    decisionModelPlaceholder: 'Small/fast model id (e.g. qwen2.5-7b)',
+    decisionHint:
+      'The small model picks tools during agent runs; the main model writes the final answer. Leave empty to use one model for both.',
     voice: 'Voice (Text-to-Speech)',
     testConnection: 'Test Connection',
     testing: 'Testing...',
     connectionSuccess: 'Connection successful!',
     connectionError: 'Error:',
+    sttEngine: 'Voice input engine',
+    sttWebSpeech: 'System (Web Speech API)',
+    sttWhisper: 'Local (whisper.cpp)',
+    whisperHint:
+      'whisper.cpp transcribes offline: point to whisper-cli(.exe) and a ggml model (e.g. ggml-base.bin) from github.com/ggerganov/whisper.cpp. The system engine may be unavailable in some webviews — local mode always works.',
     language: 'Language',
     languageDesc: 'Choose the app interface language',
     tabs: {

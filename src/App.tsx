@@ -1,3 +1,14 @@
+/**
+ * App shell: composes the whole UI and owns the top-level state wiring.
+ *
+ * Flow: Sidebar/ChatWindow/InputBar -> useUnifiedChat.sendMessage ->
+ * (useChat | useReActAgent) depending on `needsAgent()` — see docs/PROJECT_HANDOFF.md §4.1.
+ *
+ * The callbacks passed down to memoised children (handleSend/handleSpeak/
+ * handleStartListening/handleToggleTTS) are wrapped in useCallback on purpose:
+ * without stable identities React.memo on MessageBubble/InputBar would
+ * re-render on every streamed token (see §11).
+ */
 import { useState, useCallback } from 'react'
 import { useUnifiedChat } from './hooks/useUnifiedChat'
 import { useConfig } from './hooks/useConfig'
@@ -5,6 +16,7 @@ import { useSystem } from './hooks/useSystem'
 import { useTTS } from './hooks/useTTS'
 import { useI18n } from './hooks/useI18n'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
+import { useWhisperSTT } from './hooks/useWhisperSTT'
 import { TitleBar } from './components/Layout/TitleBar'
 import { Sidebar } from './components/Sidebar/Sidebar'
 import { ChatWindow } from './components/Chat/ChatWindow'
@@ -38,6 +50,10 @@ function App() {
   }, [])
 
   const speech = useSpeechRecognition(handleSpeechResult, handleSpeechInterim)
+  // ROADMAP Phase 0: local whisper.cpp STT is an alternative engine. Both hooks
+  // stay mounted (rules of hooks); the config decides which drives the mic.
+  const whisperSpeech = useWhisperSTT(handleSpeechResult, handleSpeechInterim)
+  const voiceEngine = config.sttEngine === 'whisper' ? whisperSpeech : speech
 
   const lastAssistantMessage = activeChat?.messages
     .filter((m) => m.role === 'assistant')
@@ -66,8 +82,8 @@ function App() {
   )
 
   const handleStartListening = useCallback(
-    () => speech.startListening(config.language === 'ru' ? 'ru-RU' : 'en-US'),
-    [speech.startListening, config.language]
+    () => voiceEngine.startListening(config.language === 'ru' ? 'ru-RU' : 'en-US'),
+    [voiceEngine.startListening, config.language]
   )
 
   return (
@@ -121,11 +137,11 @@ function App() {
             isMuted={isMuted}
             onToggleMute={toggleMute}
             onVolumeChange={changeVolume}
-            isListening={speech.isListening}
-            isSpeechSupported={speech.isSupported}
+            isListening={voiceEngine.isListening}
+            isSpeechSupported={voiceEngine.isSupported}
             onStartListening={handleStartListening}
-            onStopListening={speech.stopListening}
-            speechInterim={speech.isListening ? speechInterim : ''}
+            onStopListening={voiceEngine.stopListening}
+            speechInterim={voiceEngine.isListening ? speechInterim : ''}
             onStopGenerate={stopGeneration}
           />
         )}

@@ -1,3 +1,11 @@
+/**
+ * Preload bridge: the ONLY channel between the sandboxed renderer and Node.
+ *
+ * Exposes window.kora.* as thin ipcRenderer wrappers — no business logic here.
+ * Everything the renderer can do is enumerated in src/types/index.ts; every
+ * counterpart handler must validate its inputs again in the main process.
+ * chatStream creates a one-shot reply channel + a `<channel>:ctl` control channel.
+ */
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('kora', {
@@ -55,10 +63,10 @@ contextBridge.exposeInMainWorld('kora', {
   },
 
   ai: {
-    chat: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string }) =>
+    chat: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number; jsonMode?: boolean }) =>
       ipcRenderer.invoke('ai:chat', messages, options),
 
-    chatStream: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number }, callback: (chunk: string) => void) => {
+    chatStream: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number; jsonMode?: boolean }, callback: (chunk: string) => void) => {
       const channel = `ai:stream:${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const listener = (_event: unknown, chunk: string) => callback(chunk)
       const ctlListener = (_event: unknown, ctl: string) => callback(ctl)
@@ -95,6 +103,10 @@ contextBridge.exposeInMainWorld('kora', {
   tts: {
     synthesize: (text: string, voice?: string) => ipcRenderer.invoke('tts:synthesize', text, voice),
     voices: () => ipcRenderer.invoke('tts:voices'),
+  },
+
+  stt: {
+    transcribe: (audioBase64: string, language?: string) => ipcRenderer.invoke('stt:transcribe', audioBase64, language),
   },
 
   clipboard: {

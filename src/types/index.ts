@@ -1,6 +1,14 @@
+/**
+ * Shared type definitions and static catalogues for the renderer.
+ *
+ * PROVIDERS / THEMES / COMMANDS / PROMPT_TEMPLATES are the single source for the
+ * UI. The `window` interface declared at the bottom mirrors the preload bridge
+ * (window.kora.*) — keep it in sync with electron/preload.ts.
+ */
 export type Provider =
   | 'lmstudio'
   | 'ollama'
+  | 'llamacpp'
   | 'openai'
   | 'openrouter'
   | 'anthropic'
@@ -24,6 +32,7 @@ export interface ProviderConfig {
 export const PROVIDERS: ProviderConfig[] = [
   { id: 'lmstudio', name: 'LM Studio', baseUrl: 'http://localhost:1234', requiresApiKey: false, local: true, badge: 'LM', badgeColor: '#d97706' },
   { id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434', requiresApiKey: false, local: true, badge: 'OL', badgeColor: '#2563eb' },
+  { id: 'llamacpp', name: 'llama.cpp', baseUrl: 'http://localhost:8080', requiresApiKey: false, local: true, badge: 'LL', badgeColor: '#7c3aed' },
   { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com', requiresApiKey: true, badge: 'OA', badgeColor: '#10a37f' },
   { id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com', requiresApiKey: true, badge: 'AN', badgeColor: '#d97757' },
   { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api', requiresApiKey: true, badge: 'OR', badgeColor: '#8b5cf6' },
@@ -193,6 +202,8 @@ export interface ConfigData {
   provider: Provider
   lmstudioUrl: string
   ollamaUrl: string
+  /** llama.cpp (`llama-server`, OpenAI-compatible, default port 8080). */
+  llamacppUrl?: string
   selectedModel: string
   apiKey: string
   apiBaseUrl: string
@@ -200,6 +211,10 @@ export interface ConfigData {
   customProviders: { name: string; baseUrl: string; apiKey: string; model: string }[]
   systemPrompt: string
   temperature: number
+  /** Two-tier agent routing: small model for tool decisions ('' = single tier). */
+  agentDecisionModel?: string
+  /** Decision-tier provider; empty/undefined = same as `provider`. */
+  agentDecisionProvider?: Provider
   activeTemplate: string
   ttsVoice: string
   theme: ThemeId
@@ -207,6 +222,12 @@ export interface ConfigData {
   obsidianVaultPath: string
   graphLinkColor: string
   graphNodeColor: string
+  /** Voice input engine: system Web Speech API (default) or local whisper.cpp. */
+  sttEngine?: 'webspeech' | 'whisper'
+  /** Path to whisper-cli(.exe) — whisper.cpp build output. */
+  whisperPath?: string
+  /** Path to a ggml model file (e.g. ggml-base.bin). */
+  whisperModel?: string
 }
 
 export interface ObsidianNode {
@@ -268,8 +289,8 @@ declare global {
         execute: (command: string, options?: { bypassDangerCheck?: boolean }) => Promise<{ stdout: string; stderr: string; success: boolean; blocked?: boolean; requiresConfirmation?: boolean }>
       }
       ai: {
-        chat: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number }) => Promise<string>
-        chatStream: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number }, callback: (chunk: string) => void) => { unsubscribe: () => void; stop: () => void }
+        chat: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number; jsonMode?: boolean }) => Promise<string>
+        chatStream: (messages: { role: string; content: string }[], options: { provider: string; model?: string; apiKey?: string; baseUrl?: string; temperature?: number; jsonMode?: boolean }, callback: (chunk: string) => void) => { unsubscribe: () => void; stop: () => void }
         listModels: (provider: string, baseUrl?: string, apiKey?: string) => Promise<string[]>
         testConnection: (options: { provider: string; apiKey?: string; baseUrl?: string }) => Promise<{ success: boolean; error?: string }>
       }
@@ -280,6 +301,9 @@ declare global {
       tts: {
         synthesize: (text: string, voice?: string) => Promise<{ success: boolean; audio?: string; error?: string }>
         voices: () => Promise<{ name: string; label: string }[]>
+      }
+      stt: {
+        transcribe: (audioBase64: string, language?: string) => Promise<{ success: boolean; text?: string; error?: string }>
       }
       chats: {
         load: () => Promise<Chat[]>

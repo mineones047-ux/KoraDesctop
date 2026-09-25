@@ -11,6 +11,12 @@ export const CONFIG = {
   // Agent limits
   agent: {
     MAX_STEPS: 15,
+    // Token budget for the history the agent sends per decision call
+    // (ROADMAP Phase 0 "token budget + summarisation for memory").
+    HISTORY_TOKEN_BUDGET: 8000,
+    // Oldest entries beyond the budget are summarised once per cycle into a
+    // compact note; a summarisation failure must never block the cycle.
+    SUMMARIZE_INPUT_CAP: 8000,
   },
 
   // Stream limits

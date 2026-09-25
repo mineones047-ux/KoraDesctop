@@ -1,3 +1,15 @@
+/**
+ * Tool registry: metadata + handlers for every tool the agent may call.
+ *
+ * `BUILTIN_TOOL_METADATA` declares parameters and whether a tool is dangerous
+ * (requiresConfirmation -> the orchestrator pauses for the user). MCP tools are
+ * loaded dynamically as `mcp__<server>__<tool>` and are always treated as
+ * untrusted (unknown ones are never executed blindly).
+ *
+ * Execution goes through window.kora.* IPC — the renderer cannot do anything
+ * privileged by itself. Handler failures are returned as { success:false, error },
+ * never thrown into the agent loop. See docs/PROJECT_HANDOFF.md §4.4 and §5.
+ */
 import { ToolId, ToolMetadata, ParameterDefinition, isMcpToolId, BuiltinToolId } from './planner'
 import type { MCPToolWithServer } from '../types'
 import { boundToolError } from './guards'

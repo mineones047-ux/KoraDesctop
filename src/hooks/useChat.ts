@@ -1,3 +1,15 @@
+/**
+ * Chat layer: message list, streaming, `!` commands, Stop and persistence.
+ *
+ * Streaming contract (docs/PROJECT_HANDOFF.md §6.1): payloads arrive as text
+ * deltas, terminators as control strings ('[DONE]' / '[ERROR] <msg>'); '[ABORT]'
+ * is sent back on the control channel. Token updates are coalesced to
+ * CONFIG.stream.RENDER_INTERVAL_MS and `done()` always flushes the final text,
+ * so nothing is lost on end/error/timeout/Stop.
+ *
+ * Commands found in the *model's* reply are displayed, never executed
+ * (anti prompt-injection). Dangerous `!` commands need an explicit `!confirm`.
+ */
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Message, Chat, ConfigData } from '../types'
