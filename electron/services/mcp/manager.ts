@@ -1,3 +1,12 @@
+/**
+ * MCP manager: owns one MCPClient per configured server for the app lifetime.
+ *
+ * Responsibilities: autostart, lazy start on first use, hot reload on config
+ * change, tool-cache invalidation on `notifications/tools/list_changed`, a start
+ * mutex (no double spawn) and graceful shutdown — on Windows via
+ * `taskkill /T /F` so the whole `cmd -> npx -> node` tree dies (otherwise
+ * zombie processes survive stop/restart/exit).
+ */
 import { EventEmitter } from 'events'
 import { MCPClient } from './client'
 import { MCPConfig, MCPServerConfig } from './config'
@@ -33,6 +42,8 @@ export class MCPManager extends EventEmitter {
   private toolCache = new Map<string, MCPToolWithServer[]>()
   private toolIndex = new Map<string, { serverId: string; toolName: string }>()
   private startingPromises = new Map<string, Promise<MCPServerStatus>>()
+  /** Set by `shutdown()`; aborts starts still in flight (lazy-init quit race). */
+  private disposed = false
 
   constructor(config: MCPConfig) {
     super()
@@ -44,6 +55,7 @@ export class MCPManager extends EventEmitter {
   }
 
   async init(): Promise<void> {
+    if (this.disposed) return
     await this.config.load()
     const servers = this.config.getAll()
     await Promise.allSettled(
@@ -52,6 +64,7 @@ export class MCPManager extends EventEmitter {
   }
 
   async shutdown(): Promise<void> {
+    this.disposed = true
     const stops = Array.from(this.clients.values()).map((c) =>
       c.stop().catch((err) => console.error(`[MCP] stop error for "${c.name}":`, err)),
     )
@@ -86,6 +99,7 @@ export class MCPManager extends EventEmitter {
     const cfg = this.config.get(id)
     if (!cfg) throw new Error(`MCP server "${id}" not found`)
     if (!cfg.enabled) throw new Error(`MCP server "${cfg.name}" is disabled`)
+    if (this.disposed) throw new Error('MCP manager is shutting down')
 
     const existing = this.clients.get(id)
     if (existing?.isRunning()) {
@@ -138,7 +152,15 @@ export class MCPManager extends EventEmitter {
     this.clients.set(id, client)
 
     try {
+      if (this.disposed) throw new Error('MCP manager is shutting down')
       await client.start()
+      // `shutdown()` may have run while the child was spawning: stop it here,
+      // otherwise it would outlive the app as an orphan process.
+      if (this.disposed) {
+        await client.stop().catch(() => {})
+        this.clients.delete(id)
+        throw new Error('MCP manager is shutting down')
+      }
       await this.refreshTools(id)
       this.emit('change')
       return this.toStatus(cfg, client)

@@ -7,6 +7,9 @@ dist-electron/
 release/
 *.tsbuildinfo
 
+# Rust build output
+target/
+
 # Logs
 *.log
 

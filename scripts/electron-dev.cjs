@@ -6,7 +6,7 @@ const VITE_URL = 'http://localhost:5173'
 const MAX_RETRIES = 30
 const RETRY_DELAY = 1000
 const PROJECT_ROOT = path.join(__dirname, '..')
-const TSC_CLI = path.join(PROJECT_ROOT, 'node_modules', 'typescript', 'bin', 'tsc')
+const BUILD_MAIN = path.join(PROJECT_ROOT, 'scripts', 'build-main.cjs')
 const ELECTRON_CLI = path.join(PROJECT_ROOT, 'node_modules', 'electron', 'cli.js')
 const GPU_FAILURE_EXIT_CODES = new Set([2147483651])
 
@@ -60,12 +60,10 @@ async function launchElectron(disableGpu) {
 }
 
 async function main() {
-  console.log('[1/3] Compiling Electron...')
-  const tscExit = await run(process.execPath, [TSC_CLI, '--project', 'tsconfig.electron.json'], {
-    cwd: PROJECT_ROOT,
-  })
-  if (tscExit !== 0) {
-    console.error('TypeScript compilation failed')
+  console.log('[1/3] Bundling Electron main...')
+  const buildExit = await run(process.execPath, [BUILD_MAIN], { cwd: PROJECT_ROOT })
+  if (buildExit !== 0) {
+    console.error('Main process bundle failed')
     process.exit(1)
   }
 

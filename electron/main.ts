@@ -1,3 +1,12 @@
+/**
+ * Electron main process: window lifecycle, security hardening, handler wiring.
+ *
+ * Hardening (docs/PROJECT_HANDOFF.md §5): sandbox + contextIsolation, navigation
+ * pinned to the exact dev host / packaged index.html, webviews blocked, external
+ * links handed to shell.openExternal, renderer console/crashes forwarded to this
+ * log. All IPC handlers are registered here on start; MCP servers are shut down
+ * gracefully on quit.
+ */
 import { app, BrowserWindow, ipcMain, screen, shell } from 'electron'
 import path from 'path'
 import { registerSystemHandlers } from './ipc/system'
@@ -8,6 +17,7 @@ import { registerClipboardHandlers } from './ipc/clipboard'
 import { registerWebHandlers } from './ipc/web'
 import { registerAIHandlers } from './ipc/ai'
 import { registerTTSHandlers } from './ipc/tts'
+import { registerSTTHandlers } from './ipc/stt'
 import { registerMCPHandlers } from './ipc/mcp'
 import { registerObsidianHandlers } from './ipc/obsidian'
 import { config, registerConfigHandlers } from './services/config'
@@ -137,13 +147,16 @@ app.whenReady().then(async () => {
     registerClipboardHandlers()
     registerWebHandlers()
 
+    // Config only — a single small read, so the renderer never sees an empty
+    // MCP server list. The expensive part (autostart spawns) runs below,
+    // *after* the window exists.
     const mcpConfig = new MCPConfig()
-    const mcpManager = new MCPManager(mcpConfig)
     try {
-      await mcpManager.init()
+      await mcpConfig.load()
     } catch (err) {
-      console.error('[KORA] MCP init error:', err)
+      console.error('[KORA] MCP config load error:', err)
     }
+    const mcpManager = new MCPManager(mcpConfig)
 
     ipcMain.on('window:minimize', () => mainWindow?.minimize())
     ipcMain.on('window:maximize', () => {
@@ -158,15 +171,24 @@ app.whenReady().then(async () => {
       e.returnValue = mainWindow?.isMaximized() ?? false
     })
 
+    // Window first: heavyweight services must not delay first paint
+    // (ROADMAP Phase 0, "lazy service init in main.ts").
     createWindow()
 
     registerAIHandlers(() => mainWindow)
     registerTTSHandlers()
+    registerSTTHandlers()
     registerMCPHandlers(() => mainWindow, mcpManager)
     registerObsidianHandlers()
 
+    // MCP autostart continues in the background; quit stops whatever has
+    // started (the manager's `disposed` flag aborts starts still in flight).
+    mcpManager.init().catch((err) => {
+      console.error('[KORA] MCP init error:', err)
+    })
+
     app.on('before-quit', async (e) => {
-      if (isQuitting || !mcpManager) return
+      if (isQuitting) return
       e.preventDefault()
       isQuitting = true
       try {

@@ -25,6 +25,7 @@
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "build": "vite build",
+    "build:main": "node scripts/build-main.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
@@ -38,14 +39,19 @@
     "react-markdown": "^9.0.1"
   },
   "devDependencies": {
+    "@modelcontextprotocol/server-filesystem": "^2026.8.31",
+    "@modelcontextprotocol/server-memory": "^2026.8.31",
+    "@modelcontextprotocol/server-sequential-thinking": "^2026.8.31",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.0.1",
-    "electron": "^32.1.0",
+    "electron": "^44.4.5",
     "electron-builder": "^25.0.5",
+    "esbuild": "^0.28.2",
     "postcss": "^8.4.45",
+    "rcedit": "^5.0.2",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
     "vite": "^5.4.3",
@@ -57,6 +63,11 @@
   "build": {
     "appId": "com.kora.assistant",
     "productName": "Kora",
+    "afterPack": "scripts/after-pack.cjs",
+    "asar": true,
+    "asarUnpack": [
+      "dist-electron/mcp/**"
+    ],
     "directories": {
       "output": "release"
     },
@@ -69,6 +80,7 @@
     },
     "win": {
       "target": "nsis",
+      "icon": "build-assets/icon.ico",
       "signAndEditExecutable": false
     },
     "nsis": {
@@ -76,5 +88,10 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Kora-Setup-${version}.${ext}"
     }
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.21.5": true,
+    "msedge-tts": false
   }
 }

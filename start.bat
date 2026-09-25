@@ -4,10 +4,10 @@ echo   Kora - AI Desktop Assistant
 echo ================================
 echo.
 
-echo [1/3] Compiling Electron...
-call npx tsc --project tsconfig.electron.json
+echo [1/3] Bundling Electron main...
+call node scripts\build-main.cjs
 if errorlevel 1 (
-    echo TypeScript compilation failed!
+    echo Main process bundle failed!
     pause
     exit /b 1
 )

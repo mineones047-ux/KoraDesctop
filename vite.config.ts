@@ -13,8 +13,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    // The renderer only ever runs inside Electron 32's Chromium (128+), so
-    // shipping modern, un-transpiled syntax is safe and slightly smaller/faster.
+    // The renderer only ever runs inside Electron's Chromium (128+; current
+    // baseline is Electron 44 / Chromium 152), so shipping modern,
+    // un-transpiled syntax is safe and slightly smaller/faster.
     target: 'esnext',
   },
   server: {
