@@ -1,5 +1,191 @@
 # Kora — Fixes Journal
 
+## September 23, 2026 — ROADMAP Phase 0 (part 1)
+
+Verification for everything below (per ROADMAP §1.2): `npm test` → **100/100 green**, `tsc` ×3
+(renderer / electron / node) → **exit 0**, full `npm run electron:build` → installer produced,
+packaged MCP handshake tested against `release/win-unpacked`.
+
+### Electron 32.3.3 → 44.4.5 (ROADMAP §3)
+Problem: twelve majors of V8/Chromium behind; the hardened flags (`contextIsolation`, `sandbox`,
+no `remote`) already matched Electron's defaults, so the upgrade was expected to be mechanical.
+→ `electron@^44` in devDependencies; `vite.config.ts` comment updated; README stack updated.
+No code changes were needed: all three typechecks and the100 tests passed unchanged.
+
+### Main process bundled with esbuild (ROADMAP §3 "one file")
+Problem: `tsc` emitted 25 separate CJS modules — one `require` + one disk read per module at boot.
+→ New `scripts/build-main.cjs` (`npm run build:main`): wipes `dist-electron/`, bundles
+`main.ts` + `preload.ts` into **2 files** (`main.js` 96 KB, `preload.js` 6.5 KB) in ~40 ms,
+`packages: 'external'` keeps runtime deps (msedge-tts) as normal requires. Type checking moved to
+`tsc -p tsconfig.electron.json` with `noEmit: true`. `scripts/electron-dev.cjs` and `start.bat`
+now call the bundle script instead of `tsc`; `electron-builder` packs the bundle as before.
+
+### asar made explicit (ROADMAP §3)
+Problem: asar was on by default but not declared, and nothing was unpacked — which broke child
+processes (see next item). Electron-builder reports "default Electron icon is used" — icon and
+code signing remain open (need an asset / certificate).
+→ `"asar": true` + `"asarUnpack": ["dist-electron/mcp/**"]` in package.json `build`.
+
+### Lazy service init — window first (ROADMAP §3)
+Problem: `main.ts` awaited `mcpManager.init()` (which spawns MCP servers) **before** `createWindow()`,
+delaying first paint by the whole MCP autostart.
+→ Order changed: config read (fast, so the renderer never sees an empty MCP list) → handlers →
+`createWindow()` → handler registration → `mcpManager.init()` **not awaited**. Quit safety: the
+manager gained a `disposed` flag set by `shutdown()`; `startServer`/`doStart` check it before and
+after `client.start()`, so a quick quit cannot leak an in-flight child (the `taskkill /T` tree-kill
+path in `client.ts` is unchanged and still covers user-configured `cmd` servers).
+
+### MCP servers no longer spawn `npx` (ROADMAP §3 "biggest single real-world win")
+Problem: each reference server launched as `cmd /c npx -y <pkg>` cost a whole extra Node process
+(hundreds of MB, seconds) and, for first runs, a runtime download; on Windows it was also the
+`cmd → npx → node` tree behind the zombie-process bug in FIXES (Aug 26, critical #3).
+→ Each of the three `@modelcontextprotocol/server-*` packages is now bundled **self-contained**
+(`dist-electron/mcp/server-*.mjs`, ~1.6 MB each, ESM because
+`server-filesystem` uses top-level await) and spawned as
+`ELECTRON_RUN_AS_NODE=1 <app-exe> <bundle.mjs>` — a single process, no npx, no npm cache lookup.
+Packages moved to **devDependencies** (the installer no longer ships their131-package closure).
+`~/.kora/mcp.json` entries that still say `npx -y <pkg>` are migrated automatically on load
+(only when the package resolves locally; unknown packages keep the `npx` fallback; this
+machine's config had already been hand-migrated to a local `node.exe` on 2026-09-22, so the
+loader migration had nothing to rewrite here — it covers fresh installs and genuinely-npx
+configs).
+Gotcha found while testing: **`ELECTRON_RUN_AS_NODE` cannot `require()` from inside `app.asar`**
+(the first packaged test failed with `Cannot find module 'fast-deep-equal'`), hence both the
+self-contained bundles and the `asarUnpack` rule. Also `server-sequential-thinking` reads its own
+`package.json` at startup for the handshake version — `build-main.cjs` copies it next to the
+bundles.
+Verification: `initialize` + `tools/list` handshakes OK for all three bundles via Electron 44 in
+Node mode, both from `dist-electron/` (dev) and planned packaged path; all MCP config tests/type
+checks green.
+
+### CI (ROADMAP §3)
+→ `.github/workflows/ci.yml`: on push/PR — `npm ci`, `npm test`, three `tsc` checks,
+`npm run build:main`, `npm run build` on ubuntu-latest/Node 22. The same commands pass locally;
+the first GitHub run still needs a push to be confirmed.
+
+### Environment fixes (this machine)
+- npm's install-script allow-list: `esbuild@0.28.2` / `esbuild@0.21.5` approved, `msedge-tts`
+  denied (`only-allow pnpm` preinstall would break `npm install`), recorded in package.json
+  `allowScripts`.
+- Electron's binary postinstall had never run — downloaded manually via
+  `node node_modules/electron/install.js`.
+
+### Structured output for agent decisions — `response_format` (ROADMAP §3)
+Problem: agent decisions relied on the prompt saying "reply with ONLY a JSON object" plus a
+corrective-retry loop — every malformed reply cost a **full extra LLM pass** (the loop allows up
+to 14 rounds per step).
+→ The decision call now sets `jsonMode: true` in `AgentLLMOptions` (orchestrator) and flows
+through `window.kora.ai.chatStream` → IPC → `APIClient`/`LMStudioClient`, where `buildBody()`
+adds `response_format: { type: 'json_object' }` for every OpenAI-compatible provider — local
+(LM Studio / Ollama) and cloud alike. Anthropic has no such parameter and keeps the prompt-only
+path. If a provider rejects the parameter (`isJsonModeRejected`: matches `response_format` /
+`json_object` / json-mode wording, never auth / model_not_found / context_overflow), the request
+is retried **once** without it — behaviour on unsupported servers is unchanged, on supported
+servers most corrective retries disappear. The existing `parseAgentResponse` tolerance for
+fenced/prose-wrapped JSON stays as the safety net.
+Verification: **115/115 tests** (15 new: `src/lib/__tests__/api-json-mode.test.ts` covers
+`buildBody` + fallback guard against the real gateway module; `src/agent/__tests__/decision-parse.test.ts`
+covers the now-exported production parser) + three `tsc` checks green. GBNF grammars (llama.cpp)
+intentionally deferred to the `llama.cpp` provider item.
+
+---
+
+### Two-tier model routing — small tier decides, large tier answers (ROADMAP §3)
+Problem: every agent step — including the most frequent call in the loop, *"which tool next?"* —
+hit the single configured model; tool decisions and the final answer paid the same price.
+→ New **optional** decision tier: `agentDecisionModel` (+ `agentDecisionProvider`) added to
+`ConfigData`, whitelisted in the main process `config:set`, editable in Settings → Provider tab
+(select "same as main provider" + model id; EN/RU strings). `resolveDecisionLlmOptions()` turns
+the config into request options and returns **null** when the feature is off or unsafe: empty
+model, cloud provider without an API key, or `custom` while the main provider owns the shared
+`apiBaseUrl`; when the tier switches to a different catalog provider the catalog `baseUrl` wins
+(so the main provider's endpoint is never reused by mistake).
+The orchestrator (`runStep`) picks the decision tier when it differs from the main one, keeps the
+`jsonMode` + temperature cap on those calls, and — only in that case — after `action:"finish"`
+makes **one** additional call to the LARGE model with the new `buildFinalAnswerPrompt()` to write
+the final prose answer from the same conversation (correction-prompt messages stripped; Stop is
+honoured before/after the call; on error the small tier's answer is kept so a finished cycle never
+degrades into a failure). With no decision model configured the behaviour is byte-for-byte the
+old single tier.
+Verification: **122/122 tests** (7 new `decision-routing` cases against the real resolver) +
+three `tsc` checks + `build:main` green.
+
+### Token budget + summarisation for memory (ROADMAP §3)
+Problem: the agent trimmed history by entry COUNT only (and halved the entry list when the
+provider reported `context_overflow`) — a few long tool outputs could blow the context while
+dozens of short turns were kept.
+→ New pure module `src/agent/token-budget.ts` (`estimateTokens` ≈ 4 chars/token + per-message
+overhead; `fitToTokenBudget` drops the OLDEST entries first and always keeps the newest 4 so the
+immediate exchange never disappears). `CONFIG.agent.HISTORY_TOKEN_BUDGET = 8000`. The orchestrator
+fits every decision call's history to the budget and, for each newly dropped segment, makes ONE
+summarisation call (`buildMemorySummaryPrompt`) — using the main model, not the small tier —
+injecting the compact note as an `[Earlier conversation summary]` system message (later drops are
+re-summarised together with the previous note; failures and Stop are non-fatal, the cycle simply
+continues unsummarised). The `context_overflow` hard-trim path is kept as a fallback.
+
+### llama.cpp / llama-server as a provider (ROADMAP §3)
+→ `llamacpp` added to the `Provider` union and the PROVIDERS catalog (`http://localhost:8080`,
+local, no key) with `llamacppUrl` in the config (default, whitelist), a Settings URL input +
+model picker + refresh, a resolver branch, API-key exemptions in `APIClient.chat / chatStream /
+testConnection`, and local-tier treatment in the two-tier decision resolver. Prompt caching and
+GPU offload are llama-server CLI flags (`--cache-prompt`, `-ngl …`) — the app speaks the
+OpenAI-compatible API to it and the Settings hint points users at the binary.
+
+### Local whisper.cpp STT (ROADMAP §3)
+Problem: voice input relied solely on the Web Speech API — which WebView2 does not implement
+(the scheduled Phase-3 blocker from the risk register).
+→ Settings → Voice gained an engine select (System / Local whisper.cpp) plus binary and model
+path inputs (EN/RU). New `stt:transcribe` IPC handler: validates engine, paths, the `RIFF` header
+and a 25 MB cap, writes a temp WAV, runs the user's `whisper-cli -m … -f … -l … -nt -np`
+(`shell: false`, 120 s timeout, temp file removed afterwards) and returns stdout text, stripping
+timestamps defensively for older builds. The renderer side is `useWhisperSTT`: MediaRecorder →
+Web Audio `decodeAudioData` → downmix/resample to 16 kHz mono → WAV via the new pure
+`src/lib/wav.ts` → base64 → IPC. `App` keeps both engines mounted and switches on
+`config.sttEngine`; the Web Speech path remains the default.
+
+### App icon — generated, embedded, verified (ROADMAP §3, half of "icon + code signing")
+Problem: the installer and exe carried the default Electron icon; `win.signAndEditExecutable`
+had been disabled in an earlier fix because electron-builder's `winCodeSign` bundle cannot be
+extracted on machines without symlink privileges (`ERROR: Cannot create symbolic link …
+libcrypto.dylib` → build fails and retries).
+→ `scripts/generate-icon.ps1` (pure PowerShell + System.Drawing, re-runnable) renders a crimson
+"K" plate at 7 sizes and assembles a PNG-compressed multi-size `build-assets/icon.ico`
+(+ `icon.png`); `win.icon` points NSIS at it. For the exe itself the winCodeSign path is bypassed
+with an `afterPack` hook (`scripts/after-pack.cjs`) that runs `rcedit` directly.
+Gotchas hit and fixed while wiring this up: `rcedit@5` is ESM-only (the CJS hook loads it via
+`await import()`), and a UTF-8 BOM written by PowerShell before a shebang makes Node fail to
+`require` the hook (`node --check` catches it) — the file is now BOM-free without a shebang.
+Verification: the build log shows `[afterPack] icon embedded via rcedit` and no longer
+"default Electron icon is used"; extracting the icon from `release/win-unpacked/Kora.exe`
+returns our artwork — 9/9 sampled pixels match `build-assets/icon.png` (plate `#0C0C0E`,
+glyph `#E05042`). Installer rebuilt: 110.8 MB. **Code signing remains open**: it needs a real
+certificate (a purchase/CI-secret decision, ROADMAP §10) — a self-signed cert would only add
+warnings, so it was deliberately left out.
+
+### What did NOT improve (honest notes for the Phase 0 exit criteria)
+
+- **Installer grew 81.4 → 110.9 MB**, unpacked app 274 → 381.2 MB / 78 files (bigger Electron 44
+  runtime; the previous baseline had no MCP packages in the app at all; moving the MCP server
+  packages to devDependencies removed their ~131-package closure from both numbers).
+- **Start time re-measured with the same `MainWindowHandle` harness as §2 of the ROADMAP:**
+  cold **3.22 s** (baseline 10.4 s), warm **0.6 s** (baseline 2.3–4.7 s) — the Phase 0 exit
+  criterion "warm start < 1.5 s" is **MET**. Launches and kills cleanly (0 leftover processes
+  after `taskkill /T`).
+- **RAM re-measured: 357.5 MB across 4 processes** (baseline 354.6 MB) — the exit criterion
+  "< 300 MB" is **NOT met**; no RAM-specific work has been done yet (candidates: defer more
+  services behind first use, trim background fetches/polling; realistically the big cut arrives
+  with the Rust core per §4.1).
+- The Phase 0 exit criteria are therefore only **partially met** (warm start ✅, tests ✅,
+  FIXES note ✅, RAM ❌) — and Phase 0 items below are still open, so the phase as a whole stays open.
+- The size target belongs to the Rust phases (§4.1), not Phase 0 — re-baseline after the
+  remaining Phase 0 items.
+- Warm start < 1.5 s / RAM < 300 MB: see "Start time" / "RAM" bullets above — warm start MET,
+  RAM NOT met yet.
+- Still open in Phase 0: **code signing** (needs a real certificate — the icon half of the item
+  is done, see the ROADMAP §10 open decision), plus everything in the Rust phases (§4+).
+
+---
+
 ## August 26, 2026
 
 ### Diagnostics and audit

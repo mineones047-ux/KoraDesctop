@@ -3,9 +3,9 @@
 A local-first AI desktop assistant in the spirit of JARVIS. Built with **Electron**: an LLM chat
 plus a **ReAct agent** that can work with files, the shell, the web and the system on its own.
 
-Providers are local (**LM Studio**, **Ollama**) or cloud-based (any OpenAI-compatible API,
+Providers are local (**LM Studio**, **Ollama**, **llama.cpp**) or cloud-based (any OpenAI-compatible API,
 **Anthropic**, **OpenRouter**, Gemini, Groq, DeepSeek, Mistral, xAI). It includes speech synthesis
-and recognition, and tool extension through **MCP** servers.
+and recognition (Web Speech API or offline **whisper.cpp**), and tool extension through **MCP** servers.
 
 ## Features
 
@@ -16,7 +16,7 @@ and recognition, and tool extension through **MCP** servers.
   (volume, brightness, lock/sleep/shutdown), TTS. Dangerous operations require confirmation.
 - 🔌 **MCP** — connect any Model Context Protocol server (managed and diagnosed from the UI).
 - 🕸 **Obsidian graph** — visualize a notes vault: tags, links, force layout on canvas.
-- 🔊 **Voice** — synthesis (msedge-tts) and recognition (Web Speech API), language follows the UI locale.
+- 🔊 **Voice** — synthesis (msedge-tts) and recognition (Web Speech API, or the offline **whisper.cpp** engine), language follows the UI locale.
 - 🎨 **Themes** — Dark / Crimson / Light / Retro; **EN / RU** localization.
 
 ## Download
@@ -43,7 +43,7 @@ Either way, continue with [Requirements](#requirements) and [Install](#install) 
 
 - **Node.js 18+** and npm
 - Windows / macOS / Linux
-- For local models — a running LM Studio (port `1234`) or Ollama (port `11434`)
+- For local models — a running LM Studio (port `1234`), Ollama (port `11434`) or llama.cpp `llama-server` (port `8080`)
 
 ## Install
 
@@ -57,22 +57,23 @@ npm install
 npm run dev
 ```
 
-The script compiles the main process (`tsc`), starts the Vite dev server and launches Electron.
+The script bundles the main process (`esbuild` via `scripts/build-main.cjs`), starts the Vite dev server and launches Electron.
 Windows alternative: `start.bat`.
 
 ## Build
 
 ```bash
 npm run build            # production renderer build (Vite -> dist/)
+npm run build:main       # main-process bundle (esbuild -> dist-electron/main.js + preload.js)
 npm run electron:build   # build + installer (electron-builder -> release/)
 ```
 
 ## Tests and checks
 
 ```bash
-npm test                                  # vitest run — 100 tests
+npm test                                  # vitest run — 138 tests
 npx tsc -p tsconfig.json --noEmit         # renderer typecheck
-npx tsc -p tsconfig.electron.json         # main-process typecheck + build
+npx tsc -p tsconfig.electron.json         # main-process typecheck (noEmit; bundling is npm run build:main)
 npx tsc -p tsconfig.node.json --noEmit    # build-config typecheck
 ```
 
@@ -90,7 +91,7 @@ Two processes and the bridge between them:
 
 - **Renderer** (`src/`, bundled by Vite) — React 18 + TypeScript + Tailwind: UI, chat, ReAct agent,
   tool registry.
-- **Main** (`electron/`, compiled by `tsc` into `dist-electron/`) — every privileged operation:
+- **Main** (`electron/`, bundled by esbuild into `dist-electron/main.js` + `preload.js`) — every privileged operation:
   filesystem, shell, network, TTS, MCP, config, audit. The renderer has no direct Node access —
   only the `window.kora.*` IPC channels declared in `preload.ts`.
 - **Shared security logic** (`electron/lib/`) — pure modules with no Electron imports, so both the
@@ -132,6 +133,9 @@ electron/
 
 ## Documentation
 
+- [Project handoff](docs/PROJECT_HANDOFF.md) — full technical context (architecture, data flows, protocols, security model, build notes, conventions)
+- [Roadmap](docs/ROADMAP.md) — planned work: cheap performance wins first, then the plan to rewrite the core in Rust (phases, migration map, risks)
+- [Core RPC contract](docs/CORE_RPC.md) — the `kora-rpc/1` design: the JSON-RPC boundary between the Rust core and every shell (Phase P1)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Fixes journal](docs/FIXES.md)
 - [Security audit](docs/SECURITY_AUDIT.md)
@@ -158,7 +162,7 @@ Stored in `~/.kora/`:
 
 ## Stack
 
-React 18 · TypeScript 5 · Tailwind CSS 3 · Electron 32 · Vite 5 · Vitest 4 · msedge-tts
+React 18 · TypeScript 5 · Tailwind CSS 3 · Electron 44 · Vite 5 · Vitest 4 · esbuild · msedge-tts
 
 ## License
 

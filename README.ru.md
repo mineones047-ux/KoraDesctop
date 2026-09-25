@@ -3,9 +3,9 @@
 Локальный ИИ-ассистент для рабочего стола в стиле JARVIS. Приложение на **Electron**: чат с LLM
 плюс **ReAct-агент**, который сам умеет работать с файлами, shell, вебом и системой.
 
-Провайдеры — локальные (**LM Studio**, **Ollama**) или облачные (любой OpenAI-совместимый API,
-**Anthropic**, **OpenRouter**, Gemini, Groq, DeepSeek, Mistral, xAI). Есть синтез и распознавание
-речи, а также расширение инструментов через **MCP**-серверы.
+Провайдеры — локальные (**LM Studio**, **Ollama**, **llama.cpp**) или облачные (любой OpenAI-совместимый
+API, **Anthropic**, **OpenRouter**, Gemini, Groq, DeepSeek, Mistral, xAI). Есть синтез и распознавание
+речи (Web Speech API или офлайн **whisper.cpp**), а также расширение инструментов через **MCP**-серверы.
 
 ## Возможности
 
@@ -16,7 +16,7 @@
   (громкость, яркость, lock/sleep/shutdown), TTS. Опасные операции требуют подтверждения.
 - 🔌 **MCP** — подключение любых Model Context Protocol серверов (управление и диагностика в UI).
 - 🕸 **Граф Obsidian** — визуализация хранилища заметок: теги, ссылки, физическая раскладка на canvas.
-- 🔊 **Голос** — синтез (msedge-tts) и распознавание (Web Speech API), язык по локали интерфейса.
+- 🔊 **Голос** — синтез (msedge-tts) и распознавание (Web Speech API или офлайн-движок **whisper.cpp**), язык по локали интерфейса.
 - 🎨 **Темы** — Dark / Crimson / Light / Retro; локализация **RU / EN**.
 
 ## Скачивание
@@ -43,7 +43,7 @@ cd KoraDesctop
 
 - **Node.js 18+** и npm
 - Windows / macOS / Linux
-- Для локальных моделей — запущенный LM Studio (порт `1234`) или Ollama (порт `11434`)
+- Для локальных моделей — запущенный LM Studio (порт `1234`), Ollama (порт `11434`) или llama.cpp `llama-server` (порт `8080`)
 
 ## Установка
 
@@ -57,22 +57,23 @@ npm install
 npm run dev
 ```
 
-Скрипт компилирует main-процесс (`tsc`), поднимает Vite dev-сервер и запускает Electron.
+Скрипт собирает main-процесс (`esbuild`, `scripts/build-main.cjs`), поднимает Vite dev-сервер и запускает Electron.
 Альтернатива для Windows — `start.bat`.
 
 ## Сборка
 
 ```bash
 npm run build            # production-сборка рендерера (Vite → dist/)
+npm run build:main       # бандл main-процесса (esbuild → dist-electron/main.js + preload.js)
 npm run electron:build   # сборка + инсталлятор (electron-builder → release/)
 ```
 
 ## Тесты и проверки
 
 ```bash
-npm test                                  # vitest run — 100 тестов
+npm test                                  # vitest run — 138 тестов
 npx tsc -p tsconfig.json --noEmit         # typecheck рендерера
-npx tsc -p tsconfig.electron.json         # typecheck + сборка main-процесса
+npx tsc -p tsconfig.electron.json         # typecheck main-процесса (noEmit; сборка — npm run build:main)
 npx tsc -p tsconfig.node.json --noEmit    # typecheck конфигов сборки
 ```
 
@@ -90,7 +91,7 @@ npx tsc -p tsconfig.node.json --noEmit    # typecheck конфигов сбор�
 
 - **Renderer** (`src/`, собирает Vite) — React 18 + TypeScript + Tailwind: UI, чат, ReAct-агент,
   реестр инструментов.
-- **Main** (`electron/`, компилирует `tsc` в `dist-electron/`) — все привилегированные операции:
+- **Main** (`electron/`, бандлит esbuild в `dist-electron/main.js` + `preload.js`) — все привилегированные операции:
   файловая система, shell, сеть, TTS, MCP, конфиг, аудит. Рендерер не имеет доступа к Node —
   только IPC-каналы `window.kora.*`, объявленные в `preload.ts`.
 - **Общая логика безопасности** (`electron/lib/`) — чистые модули без electron-импортов, поэтому
@@ -130,6 +131,15 @@ electron/
   services/audit-log.ts       — аудит shell
 ```
 
+## Документация
+
+- [Полный технический контекст](docs/PROJECT_HANDOFF.md) — архитектура, потоки данных, протоколы, модель безопасности, сборка, конвенции
+- [План работ](docs/ROADMAP.md) — сначала дешёвые оптимизации, затем перенос ядра на Rust ([русский перевод](docs/ROADMAP.ru.md))
+- [Контракт ядра](docs/CORE_RPC.md) — дизайн `kora-rpc/1`: граница JSON-RPC между Rust-ядром и оболочками (Фаза P1)
+- [Архитектура](docs/ARCHITECTURE.md)
+- [Журнал исправлений](docs/FIXES.md)
+- [Аудит безопасности](docs/SECURITY_AUDIT.md) · [Исправления безопасности](docs/SECURITY_FIXES.md) · [Ревью кода](docs/CODE_REVIEW.md)
+
 ## Конфигурация
 
 Хранится в `~/.kora/`:
@@ -150,7 +160,7 @@ electron/
 
 ## Стек
 
-React 18 · TypeScript 5 · Tailwind CSS 3 · Electron 32 · Vite 5 · Vitest 4 · msedge-tts
+React 18 · TypeScript 5 · Tailwind CSS 3 · Electron 44 · Vite 5 · Vitest 4 · esbuild · msedge-tts
 
 ## Лицензия
 

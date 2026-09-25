@@ -1,6 +1,6 @@
 # Kora — how the project works
 
-_Date: September 15, 2026. Describes the current state of the codebase after the fixes listed in FIXES.md._
+_Date: September 25, 2026 (Phase 0 state). Describes the current state of the codebase after the work listed in FIXES.md._
 
 ---
 
@@ -8,8 +8,9 @@ _Date: September 15, 2026. Describes the current state of the codebase after the
 
 Kora is a local-first AI desktop assistant in the spirit of JARVIS. An Electron app: an LLM chat plus
 a ReAct agent that can work with files, the shell, the web and the system on its own. Providers are
-local (LM Studio, Ollama) or cloud-based (any OpenAI-compatible API, Anthropic, OpenRouter). Voice —
-synthesis (msedge-tts) and speech recognition. Tool extension — via MCP servers.
+local (LM Studio, Ollama, llama.cpp) or cloud-based (any OpenAI-compatible API, Anthropic, OpenRouter).
+Voice — synthesis (msedge-tts) and speech recognition (Web Speech API or offline whisper.cpp). Tool
+extension — via MCP servers.
 
 ## Two processes and the bridge between them
 
@@ -23,7 +24,8 @@ synthesis (msedge-tts) and speech recognition. Tool extension — via MCP server
 
 - **Renderer** (`src/`, compiled by Vite): React 18 + TypeScript + Tailwind. All of the UI, chat,
   ReAct agent and tool registry live here.
-- **Main** (`electron/`, compiled by `tsc -p tsconfig.electron.json` into `dist-electron/`): every
+- **Main** (`electron/`, bundled by esbuild (`scripts/build-main.cjs`) into `dist-electron/main.js` +
+  `preload.js`; typechecked by `tsc -p tsconfig.electron.json`, noEmit): every
   privileged operation — filesystem, shell, network, TTS, MCP, config, audit. The renderer has no
   direct Node access — only through the `window.kora.*` IPC channels declared in `preload.ts`.
 - **Shared security logic** (`electron/lib/`): pure modules with no Electron imports, so both the
@@ -127,7 +129,7 @@ the renderer":
 
 ## LLM gateway (electron/services/api.ts)
 
-- Providers: `lmstudio` / `ollama` (keyless, local URLs), OpenAI-compatible, `anthropic` (its own body
+- Providers: `lmstudio` / `ollama` / `llamacpp` (keyless, local URLs), OpenAI-compatible, `anthropic` (its own body
   and header format), `openrouter` (a custom baseUrl is respected).
 - **Error classification**: 429 → rate_limit; 401/403 → auth; 404 + "model" → model_not_found; context
   overflow patterns; 5xx → server_error; network errors → network/timeout. Retry with jittered backoff
@@ -150,16 +152,17 @@ the renderer":
 
 - TTS: msedge-tts (`electron/services/tts.ts`), 30 s timeout, 5000-character limit; volume control in
   the UI.
-- Recognition: the Web Speech API in the renderer (`useSpeechRecognition`), language ru-RU/en-US based
-  on the UI language.
+- Recognition: the Web Speech API in the renderer (`useSpeechRecognition`) by default; the offline
+  `whisper.cpp` engine (`sttEngine: 'whisper'`, `electron/ipc/stt.ts` + `useWhisperSTT`) is an option.
+  Language ru-RU/en-US based on the UI language.
 
 ## Running and verifying
 
 ```
-npm run dev        # vite + electron (scripts/electron-dev.cjs: tsc → wait for vite → electron .)
-npm run test       # vitest run — 100 tests (7 files)
+npm run dev        # vite + electron (scripts/electron-dev.cjs: build-main → wait for vite → electron .)
+npm run test       # vitest run — 138 tests (12 files)
 npx tsc -p tsconfig.json --noEmit          # renderer typecheck
-npx tsc -p tsconfig.electron.json          # main typecheck + build
+npx tsc -p tsconfig.electron.json          # main typecheck (noEmit; build via npm run build:main)
 npx vite build     # production renderer build
 npm run electron:build  # + electron-builder (NSIS installer)
 ```
