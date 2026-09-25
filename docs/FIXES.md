@@ -1,5 +1,23 @@
 # Kora — Fixes Journal
 
+## September 25, 2026 — ROADMAP Phase 0 close-out
+
+Verification re-run end-to-end: `npm test` → **138/138** (12 files), three `tsc` checks → exit 0,
+`cargo test` → **46/46**, `cargo clippy` → clean apart from two unused-import warnings in
+`crates/kora-security` tests (formatting drift recorded for the P2 cleanup).
+
+Metrics re-measured with the same harness as ROADMAP §2 (now kept in ROADMAP §2 "Re-measured after
+Phase 0"): installer **110.85 MiB**, unpacked **381.2 MiB / 78 files**, warm start
+**0.63 / 0.43 / 0.42 s** (criterion < 1.5 s met), idle RAM **352–355 MiB** (criterion < 300 MB not
+met — the big cut arrives with the Rust core), graceful close with zero leftover processes.
+
+Docs re-synced against the code (ROADMAP EN/RU §2/§3/§4.1/§6.8/§7/§8/§11, PROJECT_HANDOFF §1/§2/§6.4/
+§7/§8/§9/§10/§11/§13, ARCHITECTURE, README EN/RU, docs/README index). The Phase 0 work was committed
+in five logical commits and pushed; the first CI run on GitHub is **green**:
+https://github.com/mineones047-ux/KoraDesctop/actions/runs/36137701650
+
+---
+
 ## September 23, 2026 — ROADMAP Phase 0 (part 1)
 
 Verification for everything below (per ROADMAP §1.2): `npm test` → **100/100 green**, `tsc` ×3
@@ -61,7 +79,8 @@ checks green.
 ### CI (ROADMAP §3)
 → `.github/workflows/ci.yml`: on push/PR — `npm ci`, `npm test`, three `tsc` checks,
 `npm run build:main`, `npm run build` on ubuntu-latest/Node 22. The same commands pass locally;
-the first GitHub run still needs a push to be confirmed.
+confirmed green on the first real push (2026-09-25, run
+https://github.com/mineones047-ux/KoraDesctop/actions/runs/36137701650).
 
 ### Environment fixes (this machine)
 - npm's install-script allow-list: `esbuild@0.28.2` / `esbuild@0.21.5` approved, `msedge-tts`
