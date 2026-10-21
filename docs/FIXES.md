@@ -1,4 +1,197 @@
+## October 21, 2026 — the Tauri bridge stops dispatching on install, and the guards get one home
+
+Problem: `npm test` was **red** — 7 of the 12 cases in `shell/__tests__/tauri-shim.test.ts`
+failed. The shim was also the only shell that behaved differently at install time, the
+headless core it documents was never built, and two of the "shared" guards had private copies.
+
+→ **`shell/tauri-shim.ts` no longer talks to the shell while being constructed.**
+`createKoraBridge()` used to fire `kora_window is_maximized` eagerly, so its request was the
+*first* thing the shell saw — ahead of the renderer's own call — and every test that pinned
+"the shim forwards exactly what was asked" was off by one. The maximise state is now fetched
+on first read (`isMaximized()` / `onMaximizedChange()`, at most one request in flight) and on
+focus, which is what `electron/preload.ts` does: installing the bridge dispatches nothing.
+The docstring's pointer to a non-existent `bridge-parity.test.ts` now names the real file.
+
+→ **Two wrong assertions in the shim suite fixed, not weakened.** `kora.mcp()` asserted the
+domain was a *function*, contradicting the shim's documented shape rule (unported domains are
+objects with the Electron method names, so a call site fails with an explanation instead of a
+`TypeError`); it now checks `mcp.list`, `system.getInfo` and `web.fetch` by name. The
+`saveSync` case awaited a `void` return and then read `calls[0]`, which only worked while the
+eager window call occupied index 0; it now asserts the `void` contract and the `chats.save`
+payload. All 12 pass.
+
+→ **`dist-electron/core-cli.mjs` is actually built.** `scripts/build-core-cli.cjs` was never
+referenced — no npm script, no CI step — and `npm run build:main` *deletes* `dist-electron/`
+first, so the headless core promised by `docs/CORE_RPC.md §1` could not be produced at all.
+The script now exports `buildCoreCli()`, `build:main` calls it after the wipe, and there is a
+`build:core-cli` script. Verified by driving the artifact over stdio: `core.hello` returns the
+protocol/version/capabilities and `fs.homeDir` returns the home directory.
+
+→ **One write guard, not two.** `electron/lib/path-guard.ts` (blocklist on the literal path
+*and* on the symlink-resolved one) was written as the shared implementation, but only the RPC
+core imported it — `electron/ipc/filesystem.ts` kept its own `assertNotBlockedWrite`, so the
+production Electron path still had the weaker check the module was created to replace. The
+handler now imports `resolveSafePath` + `assertSafeWriteTarget` and its duplicate copies are
+gone. Fixed while porting: `fs:rename` checked only the destination, so a rename could move a
+file *out* of System32; both sides are checked now, as in `core/methods.ts`. New
+`src/lib/__tests__/filesystem-guard.test.ts` (7 cases) covers the guard directly, including a
+junction/symlink pointing into a blocked root.
+
+→ **Keyboard shortcuts are wired.** `src/lib/shortcuts.ts` was fully implemented and tested
+and `resolveShortcut` had no caller, even though its docstring describes the `App.tsx`
+listener. `App.tsx` now binds `Ctrl/Cmd+N` (new chat), `Ctrl/Cmd+K` (focus the sidebar search)
+and `Escape` (close the topmost overlay, only when one is open — so `InputBar`'s own Escape
+handling still works when nothing is stacked).
+
+Verified: `npm test` **241 passed / 22 files**; all **five** `tsc` configs exit 0;
+`vite build` ✓; `npm run build:main` ✓ (now including `core-cli.mjs`). Rust was untouched and
+stays green (`cargo test --workspace`, `cargo clippy --workspace --all-targets` clean).
+
+---
+
+## September 29, 2026 — adopt `rig` + `rmcp`, and close the sandbox / skills gaps
+
+Problem: the plan said "port the LLM gateway and the MCP client to Rust by hand". A survey
+of what already exists changed that. `rig` (8K stars, 3.1M downloads, 230 contributors, MIT)
+ships provider clients, SSE and retry for **24** providers; `rmcp` 3.5 is the **official**
+Rust SDK for MCP, maintained with the spec. Together they replace ~1800 lines of
+hand-written HTTP and JSON-RPC that the project was about to spend weeks reproducing.
+
+→ **`kora-llm::provider` (new, 8 tests)** — Kora's provider ids mapped onto `rig` clients.
+What Kora keeps is only what it must: the **frozen** `[kora:<reason>]` contract (the
+renderer parses those eight values in `src/agent/guards.ts`, and they are also
+`data.koraReason` over `kora-rpc/1`), plus the local-provider dialect — LM Studio, Ollama
+and llama.cpp are OpenAI-compatible at a different base URL. `reason_for()` maps a
+provider failure onto the eight reasons, and an unrecognised failure becomes `Unknown`
+rather than a retryable reason, because retrying an unclassified error is how a request
+loop starts. There is a test for exactly that.
+
+→ **`kora-mcp` rewritten on `rmcp` (7 tests)** — the hand-rolled JSON-RPC transport is
+gone. What remains is Kora's own policy: the `mcp__<server>__<tool>` id format the
+renderer and prompt already assume, per-server timeouts, and the environment scrub on
+the server process. The frozen `mcp.json` shape is preserved, which is the part a
+rewrite is most likely to break silently.
+
+→ **`kora-security::sandbox` + `crates/kora-sandbox` (11 tests)** — the gap the roadmap
+called "the largest real risk": Kora executed LLM-chosen commands behind a *denylist*
+only. A denylist stops the commands we thought of. It does not stop `powershell -enc`,
+a renamed binary, or anything invented tomorrow. Now every `shell.execute` also gets
+  * a **scrubbed environment** — only an allowlist reaches the child, so an API key the
+    app holds cannot be read by `set` (there is a test that sets a fake secret and asserts
+    it does not appear in the child's output);
+  * **process-tree containment** on Windows via a Job Object with
+    `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, an active-process cap and a job memory cap.
+    This is the structural fix for the `cmd -> npx -> node` zombie problem already
+    described in this file.
+  The result reports `contained: true|false` so the audit log never claims a containment
+  that did not happen. Containment is **best effort**: the child is spawned and assigned
+  immediately after, a sub-millisecond window that would need
+  `PROC_THREAD_ATTRIBUTE_JOB_LIST` to close, which `std::process` does not expose. The
+  denylist still runs first, and the confirmation flow is unchanged — the sandbox makes a
+  bypassed denylist much less useful, it does not make an allowed command safe.
+
+→ **`crates/kora-skills` (20 tests)** — the "skills as plain files" pattern from Open
+  Interpreter's `.agents/skills` and Jan's extensions. A skill is a directory with a
+  `SKILL.md`: minimal YAML frontmatter plus instructions, loaded from
+  `~/.kora/skills/<name>/SKILL.md`. The rules that matter, because this is model-consumed
+  text sitting on disk: discovery **never follows a symlinked skill directory** (a link
+  pointing at `C:\` would otherwise turn a playbook into a file reader), sizes are capped,
+  unknown frontmatter keys are ignored so a skill written for a newer Kora still loads,
+  and a duplicate tool id is *reported* rather than silently dropping one of the two.
+  Only the catalogue goes into the prompt; the instructions are fetched on invocation.
+
+A design note worth recording: `kora-security` is `#![forbid(unsafe_code)]` and stays
+that way. The Win32 Job Object code lives in the new `kora-sandbox` crate, which is the
+only place in the project with `unsafe`, and the *decisions* stay in `kora-security` where
+they remain host-independent and testable. Two justified `unsafe impl Send/Sync` on the
+job handle are the only other unsafe, both with the reasoning inline.
+
+---## September 29, 2026 — ROADMAP P4: the Rust core method table + a real Tauri 2 shell
+
+Problem: the P1 contract existed in TypeScript and the Rust side had only three placeholder
+methods (`fs.exists`, `fs.stat`, `shell.execute` with a stub that never executed anything), so
+the Tauri shell the roadmap promised could not be built — there was nothing for it to call.
+
+→ **`crates/kora-methods` (new, 28 tests)** — the `kora-rpc/1` method table in Rust, the
+counterpart of `core/methods.ts`: `fs.readDir/readFile/writeFile/mkdir/stat/exists/deleteFile/
+rename/copy/grep/findFiles/homeDir`, `shell.execute`, `config.get/set`, `chats.load/save`.
+Every input is re-validated **inside the core** (`resolve_safe_path` + `assert_safe_write_target`
++ the ReDoS guard + the shell denylist), because the caller is untrusted. `bypassDangerCheck`
+from the wire is ignored on purpose.
+
+→ **`kora-security::guard` (new, 8 tests)** — the missing half of the port: `resolveSafePath`,
+`realpathDeepest` and the symlink-resolving `assertSafeWriteTarget`. `path.rs` had carried a
+comment saying this was not ported; it is now, including the traversal-into-a-blocked-root and
+symlink-into-System32 cases.
+
+→ **`crates/kora-desktop` (new, 9 tests)** — the Tauri 2 shell. A frameless window, one
+`kora_rpc` command, and a `core.hello` handshake at startup so an uninitialised core is
+impossible rather than merely rejected. It owns **no privileged logic** — that is all in the
+core. Built binary: `target/debug/kora-desktop.exe`, **16.8 MB** (the Electron installer is 116 MB).
+
+→ **`shell/tauri-shim.ts` (new, 12 vitest cases)** — the `window.kora.*` adapter that replaces
+`electron/preload.ts`: same object, same method names, same argument order, payloads passed
+through untouched. `src/main.tsx` calls `installKoraBridge()`, which is a **no-op under Electron**,
+so both shells run from one codebase and one CI run. It lives in `shell/`, not `core/`, because
+`core/` is a deliberately pure module (no DOM) — the split has its own `tsconfig.shell.json`.
+
+Verified: `cargo test --workspace` **209 passed / 0 failed**; `cargo clippy --workspace
+--all-targets` **clean, zero warnings**; `npm test` **192 passed / 17 files**; all **five**
+`tsc` configs exit 0; `vite build` 422 KB.
+
+Two real defects the tests caught while writing this, both fixed:
+  * `shell.execute` reported `success: true` for a **non-zero exit code**. Node's `exec` rejects
+    in that case, so the port must check `status`, not just whether the spawn worked.
+  * the shim read `window`, which does not exist under the `node` vitest environment; it now
+    resolves through `globalThis`, which is the same object in the renderer.
+
+Still open before a Rust shell can ship (unchanged from §6.5/§6.6): the `safeStorage` → OS
+keyring migration for API keys, the TTS story (no `msedge-tts` in Rust), and the `ai`/`mcp`/
+`system`/`web`/`tts`/`obsidian` domains, which the shim refuses by name rather than pretending
+to work.
+
+---
 # Kora — Fixes Journal
+
+
+## September 25, 2026 — ROADMAP P1 (kora-rpc/1 in TypeScript) + P2 kora-store (Rust)
+
+### P1: JSON-RPC core boundary implemented in TypeScript (docs/CORE_RPC.md)
+Problem: the core boundary existed only as a design doc — the shell (Electron) and the future
+CLI/Tauri shell had no written, tested contract, so the "one source of truth" rule would rot on
+contact with the port.
+→ New `core/` module (no Electron imports): `protocol.ts` (newline-delimited JSON-RPC 2.0 framing,
+error codes −32700…−32010, the **frozen** `koraReason` values matching `[kora:<reason>]`),
+`dispatch.ts` (`core.hello` handshake → −32002 before it; capability groups → −32003 for a group the
+shell did not declare; handler exceptions captured as −32001 `kora_error` with `data.detail`, never
+a crash), `methods.ts` (fs/shell/chats — names, argument order and return shapes identical to the
+current IPC handlers), `stdio-runner.ts` + `cli.ts` headless runner (stdin = protocol, stderr = logs)
+bundled by `scripts/build-core-cli.cjs` to `dist-electron/core-cli.mjs`.
+Security invariant kept and enforced: **every command re-validates its input inside the core** —
+`resolveSafePath`/`assertSafeWriteTarget` (including symlink resolution), the ReDoS regex guard,
+literal-substring `findFiles`, and the shell denylist all run again at the boundary; a wire caller
+passing `bypassDangerCheck` is ignored on purpose.
+→ Verified: 36 new vitest cases (`core/__tests__/`) covering handshake, capability denial, error
+capture, real-file fs roundtrips, chats corruption backup, traversal/symlink/ReDoS/dangerous-command
+refusals; full suite **174/174**; new `tsconfig.core.json` — all four `tsc` configs exit 0.
+
+### P2: `kora-store` on Rust — chats, config, audit (was a stub)
+Problem: `crates/kora-store` was an empty stub; the `~/.kora` persistence discipline (atomic writes,
+sanitisation, rotation) existed only in the Electron code the port must replace.
+→ Ported with frozen file formats: `atomic.rs` (tmp + random-suffix + rename, no leftovers on
+failure), `chats.rs` (field-by-field `sanitizeChats()` parity, corrupted file → `chats.json.corrupt-*`
+backup instead of silent wipe), `config.rs` (key whitelist with type validation, `temperature` clamp
+to [0,2], `#rrggbb` color check, Obsidian path quote stripping, unknown fields survive load/save,
+legacy `enc:` keys round-trip untouched pending the keyring migration), `audit.rs` (JSON lines,
+ISO-8601 timestamp, 10 MB rotation to `audit-<millis>.log`).
+→ Verified: 24 new unit tests (tempfile dirs only — never the real `~/.kora`); `cargo test`
+**70/70** across the workspace (kora-security 46 unchanged); `cargo clippy --all-targets` **clean** —
+including the two unused-import warnings left from Phase 0 in `kora-security` tests.
+
+Still open on this track: `mcp.json` port in `kora-store`, the Rust-side `kora-rpc` transport (P3),
+the agent loop move (P3), and the legacy `safeStorage` → keyring migration path (ROADMAP §6.5).
+
+---
 
 ## September 25, 2026 — ROADMAP Phase 0 close-out
 

@@ -1,5 +1,6 @@
 import { ipcMain, clipboard } from 'electron'
 
+/** Read/write the OS clipboard. Used by the agent's `clipboard` tool. */
 export function registerClipboardHandlers() {
   ipcMain.handle('clipboard:read', async () => {
     return clipboard.readText()

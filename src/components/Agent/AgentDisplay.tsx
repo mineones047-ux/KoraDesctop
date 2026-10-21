@@ -5,6 +5,7 @@ import { useI18n } from '../../hooks/useI18n'
 import type { ConfigData } from '../../types'
 import { resolveProviderConfig } from '../../lib/resolve-provider'
 
+/** Props for the agent panel; it mounts its own agent instance rather than sharing one. */
 interface AgentDisplayProps {
   lang: Locale
   config: ConfigData
@@ -12,6 +13,14 @@ interface AgentDisplayProps {
   onClose: () => void
 }
 
+/**
+ * The agent panel: a task to run, the live think/act/observe trace, and Stop.
+ *
+ * It is a *standalone* agent — it calls `useReActAgent()` itself and shares no cycle with
+ * the chat's agent, so a long-running task here does not block ordinary conversation. The
+ * trade-off is two independent histories, which is why the panel shows the current task's
+ * own trace rather than the chat's.
+ */
 export function AgentDisplay({ lang, config, show, onClose }: AgentDisplayProps) {
   const t = useI18n(lang)
   const agent = useReActAgent()
@@ -105,16 +114,15 @@ export function AgentDisplay({ lang, config, show, onClose }: AgentDisplayProps)
   })
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
-      <div
-        className="w-full max-w-3xl bg-kora-surface border border-kora-border rounded-2xl shadow-2xl animate-slide-up"
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>        <div
+        className="w-full max-w-3xl mx-4 bg-kora-surface border border-kora-border rounded-2xl shadow-2xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-5 border-b border-kora-border">
           <h2 className="text-lg font-semibold text-kora-text">{t.agent.title}</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
+            className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

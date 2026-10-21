@@ -216,4 +216,3 @@ pub fn match_glob(name: &str, glob: &str) -> bool {
         Err(_) => false,
     }
 }
-

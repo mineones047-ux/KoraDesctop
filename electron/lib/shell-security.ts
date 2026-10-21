@@ -51,6 +51,19 @@ const DANGEROUS_PATTERNS = [
   /\b(netsh\s+interface)\b/i,
   /\b(ipconfig\s+\/renew|ipconfig\s+\/release)\b/i,
   /\b(new-netipaddress|remove-netipaddress)\b/i,
+
+  // Remote execution / download helpers (security review 2026-09-25).
+  // Aliases matter: `iex (irm http://…)` and `powershell -enc <blob>` slipped
+  // through the full-name rules above.
+  /\b(invoke-expression|iex)\b/i,
+  /\b(iwr|irm)\s+/i,
+  /\b(net\.webclient|downloadstring|downloadfile)\b/i,
+  /\bbitsadmin\b/i,
+  /\bmshta(\.exe)?\b/i,
+  /\b(wscript|cscript)(\.exe)?\b/i,
+  /\brundll32(\.exe)?\b/i,
+  /\bregsvr32(\.exe)?\b/i,
+  /\bpowershell(?:\.exe)?\b[^|]*\s-(?:e|en|enc|enco|encod|encodedcommand)(?=\s|$)/i,
 ]
 
 // SAFE COMMAND PATTERNS - allow these without confirmation
@@ -58,6 +71,18 @@ const SAFE_PATTERNS = [
   /^(dir|ls|echo|cat|type|head|tail|grep|find|which|where|pwd|cd|date|time|whoami|hostname|uname|systeminfo|tasklist|ps)\b/i,
 ]
 
+/**
+ * Is this command in the denylist?
+ *
+ * Two-stage by necessity. Pipe-to-shell is checked on the *raw* text because the
+ * normalization below deletes `|`, which would erase the very pattern we are looking for.
+ * Only after that do we normalize and run the destructive-op patterns, so that separators
+ * and escapes cannot hide a verb (`& del /s`, `d^el`, `r`m`).
+ *
+ * This is a denylist, not a sandbox: it stops known-dangerous shapes, and says nothing
+ * about whether an allowed command is *wise*. The Tauri build adds process containment
+ * behind it, which is a stronger layer than anything regex can provide.
+ */
 export function isDangerousCommand(command: string): boolean {
   // Pre-normalization check: pipe-to-shell patterns get broken by
   // the normalization step that replaces | with space
@@ -71,12 +96,17 @@ export function isDangerousCommand(command: string): boolean {
   // operators, or newlines are still matched (e.g. `& del /s ...` or
   // "echo hi\nrm -rf proj"). Replacing separators with a space keeps the
   // word-boundary regexes effective without matching across token joins.
+  // Carets and backticks are DELETED (not replaced): cmd `d^el` and
+  // PowerShell `` r`m `` both mean `rm` to the shell, so the detector must
+  // see the same token (security review 2026-09-25).
   const normalizedCmd = command
     .trim()
     .replace(/[\r\n]+/g, ' ')
     .replace(/&{1,2}\s*/g, ' ')
     .replace(/\|{1,2}\s*/g, ' ')
     .replace(/;\s*/g, ' ')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ')
+    .replace(/[\^`]/g, '')
 
   for (const pattern of DANGEROUS_PATTERNS) {
     if (pattern.test(normalizedCmd)) {
@@ -87,6 +117,12 @@ export function isDangerousCommand(command: string): boolean {
   return false
 }
 
+/**
+ * Is this command read-only enough to skip the confirmation prompt?
+ *
+ * Separate from `isDangerousCommand` on purpose: that answers "must I block this", this
+ * answers "can I just run it", and a command can be neither dangerous nor in this list.
+ */
 export function isSafeCommand(command: string): boolean {
   const normalizedCmd = command.trim()
 

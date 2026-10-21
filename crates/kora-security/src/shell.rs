@@ -23,15 +23,21 @@ static PIPE_TO_SHELL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
         // Direct pipe to a shell, with an optional sudo/exec/env/nohup prefix and an
         // optional absolute path. TS: `/\|\s*(?:sudo\s+...)?(?:\/(?:bin|...)\/)?(sh|bash|...)\b/i`
-        js_regex(r"(?i)\|@WS@*(?:sudo@WS@+|exec@WS@+|env@WS@+|nohup@WS@+)?(?:/(?:bin|usr/bin|usr/local/bin)/)?(sh|bash|powershell|pwsh|zsh|csh|ksh|dash|fish)(?-u:\b)"),
+        js_regex(
+            r"(?i)\|@WS@*(?:sudo@WS@+|exec@WS@+|env@WS@+|nohup@WS@+)?(?:/(?:bin|usr/bin|usr/local/bin)/)?(sh|bash|powershell|pwsh|zsh|csh|ksh|dash|fish)(?-u:\b)",
+        ),
         // Command substitution with backticks (case-sensitive in TS).
         js_regex(r"`[^`]*(?-u:\b)(curl|wget|Invoke-WebRequest|Invoke-RestMethod)(?-u:\b)[^`]*`"),
         // Command substitution with `$( )` (case-sensitive in TS).
-        js_regex(r"\$\([^)]*(?-u:\b)(curl|wget|Invoke-WebRequest|Invoke-RestMethod)(?-u:\b)[^)]*\)"),
+        js_regex(
+            r"\$\([^)]*(?-u:\b)(curl|wget|Invoke-WebRequest|Invoke-RestMethod)(?-u:\b)[^)]*\)",
+        ),
         // eval/exec with remote content.
         js_regex(r#"(?i)(?-u:\b)eval@WS@+["']?@WS@*\$?\(?[^)]*(?-u:\b)(curl|wget)(?-u:\b)"#),
         // `curl ... | sh` without the pipe being the first thing.
-        js_regex(r"(?i)(?-u:\b)(curl|wget)(?-u:\b)[^|]*\|@WS@*(?:sudo@WS@+|exec@WS@+)?(?:/(?:bin|usr/bin|usr/local/bin)/)?(?-u:\w)*sh(?-u:\b)"),
+        js_regex(
+            r"(?i)(?-u:\b)(curl|wget)(?-u:\b)[^|]*\|@WS@*(?:sudo@WS@+|exec@WS@+)?(?:/(?:bin|usr/bin|usr/local/bin)/)?(?-u:\w)*sh(?-u:\b)",
+        ),
     ]
 });
 /// `DANGEROUS_PATTERNS` — matched against the **normalised** command, so an operation buried
@@ -114,4 +120,3 @@ pub fn is_safe_command(command: &str) -> bool {
     let trimmed = command.trim();
     SAFE_PATTERNS.iter().any(|p| p.is_match(trimmed))
 }
-

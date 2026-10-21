@@ -16,6 +16,7 @@ export default {
           muted: 'rgb(var(--kora-muted) / <alpha-value>)',
           accent: 'rgb(var(--kora-accent) / <alpha-value>)',
           'accent-hover': 'rgb(var(--kora-accent-hover) / <alpha-value>)',
+          'accent-soft': 'rgb(var(--kora-accent-soft) / <alpha-value>)',
           success: 'rgb(var(--kora-success) / <alpha-value>)',
           warning: 'rgb(var(--kora-warning) / <alpha-value>)',
           error: 'rgb(var(--kora-error) / <alpha-value>)',

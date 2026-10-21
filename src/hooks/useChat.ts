@@ -26,6 +26,7 @@ import {
 
 const CMD_REGEX = /!(shell|file|open|dir|write|rename|delete|mkdir|stat|exists|help|calc|random|uuid|time|shutdown|restart|sleep|lock|volume|mute|brightness|windows|find|clipboard|search|confirm|deny)(?:\s+[^\n`!]+)?/g
 
+/** Command names found in a model's reply — displayed, never executed. */
 function extractCommands(text: string): string[] {
   const matches = text.match(CMD_REGEX)
   if (!matches) return []
@@ -41,6 +42,13 @@ function extractCommands(text: string): string[] {
   return unique
 }
 
+/**
+ * Does this command need the user to type `!confirm` first?
+ *
+ * `!clipboard` is special-cased: reading the clipboard is harmless, but `!clipboard <text>`
+ * *writes* it, and a page that convinces the model to write the clipboard is a real
+ * exfiltration path. So the decision depends on the arguments, not just the name.
+ */
 function isDangerousCommand(cmd: string): boolean {
   const trimmed = cmd.trim()
   const spaceIdx = trimmed.indexOf(' ')
@@ -49,6 +57,13 @@ function isDangerousCommand(cmd: string): boolean {
   return DANGEROUS_COMMANDS.has(name)
 }
 
+/**
+ * Dispatch one `!` command, parking dangerous ones for confirmation.
+ *
+ * Returns `{isCommand: false}` for anything that is not a known command, and the caller
+ * then treats the text as an ordinary chat message — so an unrecognised `!` word reaches
+ * the model instead of vanishing.
+ */
 async function processCommand(
   content: string,
   t: Translations,
@@ -62,7 +77,7 @@ async function processCommand(
     const spaceIdx = trimmed.indexOf(' ')
     const name = spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx)
     const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1)
-    const description = describeDangerousCommand(name, args)
+    const description = describeDangerousCommand(name, args, t)
 
     pendingConfirmRef.current = {
       type: name === 'shutdown' ? 'shutdown' : name === 'restart' ? 'restart' : 'command',
@@ -71,7 +86,7 @@ async function processCommand(
     }
     return {
       isCommand: true,
-      output: `⚠️ **Confirmation required**\n\n${description}\n\nType \`!confirm\` to proceed or \`!deny\` to cancel.`,
+      output: `⚠️ **${t.danger.title}**\n\n${description}\n\n${t.danger.hint}`,
     }
   }
 
@@ -88,6 +103,16 @@ async function processCommand(
   return { isCommand: false, output: '' }
 }
 
+/**
+ * The chat layer: messages, streaming, `!` commands, Stop, and persistence.
+ *
+ * Owns the renderer side of a conversation. Three invariants are worth knowing before
+ * changing anything here:
+ *  1. commands the *model* writes are displayed, never executed;
+ *  2. a dangerous command typed by the *user* still needs an explicit `!confirm`;
+ *  3. `done()` always flushes the accumulated text, so Stop, timeout and error all leave
+ *     the same partial answer on screen rather than an empty bubble.
+ */
 export function useChat() {
   const pendingConfirmRef = useRef<PendingAction | null>(null)
   const [chats, setChats] = useState<Chat[]>([])

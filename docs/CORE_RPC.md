@@ -1,14 +1,17 @@
 # CORE RPC — the contract between the Rust core and every shell
 
-> **Status:** design specification (Phase P1 of [`ROADMAP.md`](ROADMAP.md)). Nothing in this file is
-> implemented yet on the Rust side; the TypeScript app in `src/` + `electron/` is the reference
-> implementation that must keep working unchanged.
+> **Status:** **P1 implemented on the TypeScript side** (2026-09-25): `core/protocol.ts` (framing,
+> error codes, frozen `koraReason` values), `core/dispatch.ts` (handshake, capability enforcement,
+> error capture), `core/methods.ts` (fs/shell/chats with in-core security re-validation),
+> `core/stdio-runner.ts` + `core/cli.ts` (headless runner, bundled to `dist-electron/core-cli.mjs`
+> by `scripts/build-core-cli.cjs`). 36 vitest cases cover the boundary. The Rust core
+> (`crates/kora-rpc`) is still to come in P3.
 >
 > **Why this file exists:** during the migration two shells (Electron today, Tauri tomorrow) and a CLI
 > have to drive the same core. Without a written contract every shell would re-invent the boundary and
 > the "one source of truth" rules of `PROJECT_HANDOFF.md` §12 would rot.
 >
-> **Last updated:** 2026-09-22.
+> **Last updated:** 2026-09-25.
 
 ---
 

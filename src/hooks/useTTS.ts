@@ -3,12 +3,25 @@ import { normalizeForSpeech, splitForSpeech, speechWordsForVoice } from '../lib/
 
 let currentAudio: HTMLAudioElement | null = null
 
+/** What a synthesis call returned from the main process. */
 interface SynthResult {
   success: boolean
   audio?: string
   error?: string
 }
 
+/**
+ * Text-to-speech playback, with volume and mute persisted across restarts.
+ *
+ * `currentAudio` is module-level rather than a ref on purpose: it must be reachable from
+ * the cleanup path as well as from `speak`, and there is exactly one audio element alive
+ * at a time by design — a second utterance replaces the first.
+ *
+ * The `genRef` counter is the subtle part. Synthesis is async and can take a second on a
+ * slow connection, so a user who clicks Stop then immediately clicks another message
+ * would otherwise have the first request's audio land *after* the second and start
+ * playing on its own. Bumping the generation invalidates every response still in flight.
+ */
 export function useTTS() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [playingId, setPlayingId] = useState<string | null>(null)
@@ -38,6 +51,7 @@ export function useTTS() {
     }
   }, [isMuted])
 
+/** Clear the "something is playing" flags in both the ref and the state. */
   const resetState = useCallback(() => {
     setIsPlaying(false)
     setPlayingId(null)

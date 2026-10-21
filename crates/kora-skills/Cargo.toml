@@ -1,0 +1,15 @@
+[package]
+name = "kora-skills"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kora skills: local, file-based playbooks discovered from the filesystem and offered to the agent as tools"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+kora-security = { path = "../kora-security" }
+
+[dev-dependencies]
+tempfile.workspace = true

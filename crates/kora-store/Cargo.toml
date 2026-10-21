@@ -9,8 +9,9 @@ description = "Kora persistence: config, chats, mcp.json and audit log with atom
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
+rand.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 rand.workspace = true
+tempfile.workspace = true

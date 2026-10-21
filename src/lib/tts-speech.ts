@@ -1,6 +1,14 @@
-// Text preparation for text-to-speech: strips markdown noise, code and URLs
-// that sound terrible when read aloud, then splits into speakable chunks.
+/**
+ * Text preparation for TTS.
+ *
+ * Reading raw markdown aloud is unpleasant: a URL gets spelled out letter by letter, and
+ * a code block turns into a stream of punctuation. This module rewrites the text into
+ * something a voice can say, and splits it into chunks that fit the service's limits.
+ *
+ * Pure and dependency-free so the vitest suite exercises the exact text that gets spoken.
+ */
 
+/** Placeholder words substituted for unreadable content, per language. */
 export interface SpeechWords {
   link: string
   code: string
@@ -10,10 +18,23 @@ export interface SpeechWords {
 const RU_WORDS: SpeechWords = { link: 'ссылка', code: 'фрагмент кода', image: 'изображение' }
 const EN_WORDS: SpeechWords = { link: 'link', code: 'code snippet', image: 'image' }
 
+/**
+ * Choose placeholder words from the voice's locale.
+ *
+ * Russian and Ukrainian share `ru`; everyone else gets English. Deriving it from the
+ * *voice* rather than the UI language is deliberate — a user can run an English UI with a
+ * Russian voice, and the placeholders then match what is actually being read aloud.
+ */
 export function speechWordsForVoice(voice: string): SpeechWords {
   return voice.startsWith('ru') || voice.startsWith('uk') ? RU_WORDS : EN_WORDS
 }
 
+/**
+ * Strip markdown noise and cap the length.
+ *
+ * `maxLen` is a real constraint, not a guard rail: the Edge endpoint rejects very long
+ * inputs, and a truncated answer is better than a failed synthesis.
+ */
 export function normalizeForSpeech(input: string, words: SpeechWords, maxLen = 4000): string {
   let t = input
 
@@ -62,7 +83,7 @@ export function normalizeForSpeech(input: string, words: SpeechWords, maxLen = 4
   t = t.replace(/<[^>\n]+>/g, ' ')
 
   // emoji & pictographs
-  // eslint-disable-next-line no-misleading-character-class
+   
   t = t.replace(
     /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu,
     '',

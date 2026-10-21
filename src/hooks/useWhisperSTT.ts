@@ -39,6 +39,7 @@ async function decodeToAudioBuffer(data: ArrayBuffer): Promise<AudioBuffer> {
  * process, which runs the user-configured whisper-cli offline. Mirrors the
  * `useSpeechRecognition` surface so App switches engines transparently.
  */
+/** Local, offline dictation via a user-configured whisper.cpp binary. */
 export function useWhisperSTT(
   onResult: (text: string) => void,
   onInterim?: (text: string) => void,

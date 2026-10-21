@@ -2,6 +2,15 @@
 // error_classifier, tool_guardrails, repetition_guard, empty_response_guard,
 // iteration_budget. Kept side-effect-free for reuse.
 
+/**
+ * Why an LLM call failed, as classified by the main process.
+ *
+ * The reason is carried inside the error message as a `[kora:<reason>]` marker, because
+ * that survives every transport between the provider and here — it is a contract, not an
+ * object. `none` is the deliberate catch-all: an unrecognised marker must never be treated
+ * as retryable, or a permanent failure (a bad API key, a typo'd model) becomes an infinite
+ * retry loop that hammers someone's billing endpoint.
+ */
 export type FailoverReason =
   | 'none'
   | 'rate_limit'
@@ -14,6 +23,13 @@ export type FailoverReason =
 
 const REASON_REGEX = /\[kora:(\w+)\]/
 
+/**
+ * Extract the failure reason from an error, defaulting to `'none'`.
+ *
+ * The value is validated against the known set rather than cast: the marker comes from a
+ * provider response and a future gateway could emit something else, which must degrade to
+ * "don't retry" rather than to a branch nobody wrote.
+ */
 export function parseLlmErrorReason(err: unknown): FailoverReason {
   const message = err instanceof Error ? err.message : String(err ?? '')
   const m = message.match(REASON_REGEX)
@@ -27,16 +43,30 @@ export function parseLlmErrorReason(err: unknown): FailoverReason {
   return 'none'
 }
 
+/**
+ * Is this failure worth retrying?
+ *
+ * Only transient causes qualify. `auth`, `model_not_found` and `context_overflow` are
+ * excluded on purpose: retrying them is pure cost, and the caller handles context overflow
+ * by trimming history instead of by asking again.
+ */
 export function isRetryableReason(reason: FailoverReason): boolean {
   return reason === 'rate_limit' || reason === 'server_error' || reason === 'network' || reason === 'timeout'
 }
 
+/**
+ * Exponential backoff with jitter, capped at 15 s.
+ *
+ * The jitter is the important half: without it, every client that hit a rate limit at the
+ * same moment retries at the same moment, and the thundering herd keeps the limit in place.
+ */
 export function backoffDelayMs(attempt: number): number {
   const base = Math.min(15000, 1000 * Math.pow(2, Math.max(1, attempt) - 1))
   const jitter = base * (0.7 + Math.random() * 0.6)
   return Math.round(jitter)
 }
 
+/** Abortable-free delay between retry attempts. */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -44,20 +74,30 @@ export function sleep(ms: number): Promise<void> {
 /**
  * IterationBudget — consume/refund step counter (port of iteration_budget.py).
  */
+/**
+ * Steps remaining in this cycle.
+ *
+ * `refund` exists because not every step is a real step: a step consumed by a model that
+ * returned malformed JSON should not count against the user as much as one that ran a tool.
+ */
 export class IterationBudget {
   private total: number
   private used = 0
 
+  /** Build a budget; the total is clamped to at least one usable step. */
   constructor(total: number) {
+    // A budget of zero would refuse every first step, so clamp to at least one.
     this.total = Math.max(1, total)
   }
 
+  /** Spend `n` steps; returns false (and spends nothing) if the budget cannot cover it. */
   consume(n = 1): boolean {
     if (this.used + n > this.total) return false
     this.used += n
     return true
   }
 
+  /** Give steps back — used when a retry consumed budget without doing real work. */
   refund(n = 1): void {
     this.used = Math.max(0, this.used - n)
   }
@@ -67,6 +107,16 @@ export class IterationBudget {
   }
 }
 
+/**
+ * Stable content hash, used to recognise "the same call with the same result".
+ *
+ * The JSON replacer sorts object keys so that `{a:1,b:2}` and `{b:2,a:1}` hash the same —
+ * without it the model re-sending identical parameters in a different key order would look
+ * like a new call and the loop guard would never fire.
+ *
+ * This is a 32-bit djb2-style hash, not a cryptographic one. Collisions would mean a
+ * spurious "you already did this" warning, so a weak hash is an acceptable trade here.
+ */
 function hashValue(v: unknown): string {
   let s: string
   try {
@@ -83,6 +133,7 @@ function hashValue(v: unknown): string {
   return String(h)
 }
 
+/** One remembered call: what was asked (hashed) and what came back (hashed). */
 interface LoopRecord {
   callKey: string
   resultKey: string
@@ -98,6 +149,7 @@ export class ToolLoopGuard {
   private notified = new Set<string>()
   private readonly maxRecords = 24
 
+  /** Remember a completed call, keeping a bounded window (oldest dropped first). */
   record(tool: string, parameters: unknown, result: unknown): void {
     this.records.push({
       callKey: `${tool}|${hashValue(parameters)}`,
@@ -159,6 +211,7 @@ export class ToolLoopGuard {
     return null
   }
 
+  /** Clear the window at the start of a new cycle, so an old streak cannot taint it. */
   reset(): void {
     this.records = []
     this.notified.clear()
@@ -208,6 +261,7 @@ export function boundToolError(err: unknown, max = 2048): string {
   return s
 }
 
+/** JSON-stringify anything, including values `JSON.stringify` would throw on. */
 function safeStringify(v: unknown): string {
   try {
     return JSON.stringify(v) ?? String(v)

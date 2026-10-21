@@ -9,12 +9,14 @@
  * specific tokenizer, only to bound context size predictably.
  */
 
+/** One history entry as far as budgeting is concerned — content and role only. */
 export interface BudgetEntry {
   role: string
   content: string
   timestamp?: number
 }
 
+/** What a fit produced: what stayed, what went, and the text to summarise. */
 export interface BudgetFit<T extends BudgetEntry> {
   /** Newest entries that fit the budget (always includes keepRecent tail). */
   kept: T[]
@@ -32,6 +34,7 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4) + 1
 }
 
+/** One message's cost: its text plus the fixed framing overhead. */
 export function entryTokens(entry: BudgetEntry): number {
   return estimateTokens(entry.content) + 4 // role + message framing
 }
@@ -77,6 +80,7 @@ export function fitToTokenBudget<T extends BudgetEntry>(
   }
 }
 
+/** Total cost of a set of entries. */
 function sumTokens(entries: BudgetEntry[]): number {
   return entries.reduce((acc, e) => acc + entryTokens(e), 0)
 }

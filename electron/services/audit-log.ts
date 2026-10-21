@@ -13,6 +13,7 @@ const LOG_DIR = path.join(os.homedir(), '.kora')
 const LOG_FILE = path.join(LOG_DIR, 'audit.log')
 const MAX_LOG_SIZE = 10 * 1024 * 1024 // 10 MB
 
+/** One line of the audit trail. `blocked` distinguishes "refused" from "failed". */
 export interface AuditEvent {
   type: 'shell_execute' | 'file_write' | 'file_delete' | 'file_rename' | 'mcp_call' | 'system_control'
   action: string
@@ -24,6 +25,7 @@ export interface AuditEvent {
 
 let logInitialized = false
 
+/** Create `~/.kora` once per process. */
 async function ensureLogDir(): Promise<void> {
   if (logInitialized) return
   try {
@@ -34,6 +36,12 @@ async function ensureLogDir(): Promise<void> {
   }
 }
 
+/**
+ * Move an oversized log aside before appending.
+ *
+ * The rotated file is kept rather than truncated: an audit trail that silently drops its
+ * oldest entries is not much use for the forensics it exists for.
+ */
 async function rotateLogIfNeeded(): Promise<void> {
   try {
     const stat = await fs.stat(LOG_FILE)
@@ -47,6 +55,13 @@ async function rotateLogIfNeeded(): Promise<void> {
   }
 }
 
+/**
+ * Append one event. Never throws.
+ *
+ * Callers are on the path that executes user commands; an audit write that can fail an
+ * operation would mean a full disk could stop the app from working. A failure is reported
+ * to the console and otherwise ignored — the alternative, refusing to run, is worse.
+ */
 export async function logAuditEvent(event: AuditEvent): Promise<void> {
   await ensureLogDir()
   await rotateLogIfNeeded()
@@ -64,6 +79,7 @@ export async function logAuditEvent(event: AuditEvent): Promise<void> {
 }
 
 // Convenience functions for common events
+/** Shorthand for the shell tool's three outcomes (ok, failed, blocked). */
 export async function logShellExecution(command: string, success: boolean, blocked: boolean = false): Promise<void> {
   await logAuditEvent({
     type: 'shell_execute',
@@ -74,6 +90,7 @@ export async function logShellExecution(command: string, success: boolean, block
   })
 }
 
+/** Shorthand for write/delete/rename outcomes. Recorded from the fs handlers. */
 export async function logFileOperation(operation: string, filePath: string, success: boolean): Promise<void> {
   await logAuditEvent({
     type: 'file_write',
@@ -83,6 +100,7 @@ export async function logFileOperation(operation: string, filePath: string, succ
   })
 }
 
+/** Shorthand for MCP tool invocations. */
 export async function logMcpCall(serverName: string, toolName: string, success: boolean): Promise<void> {
   await logAuditEvent({
     type: 'mcp_call',
@@ -92,6 +110,7 @@ export async function logMcpCall(serverName: string, toolName: string, success: 
   })
 }
 
+/** Shorthand for volume/shutdown/lock and the other OS-level actions. */
 export async function logSystemControl(action: string, success: boolean): Promise<void> {
   await logAuditEvent({
     type: 'system_control',

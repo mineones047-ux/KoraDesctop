@@ -2,17 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Palette from the approved HTML/CSS mockup (.freebuff/ui-design/style.css):
+   steel dark surfaces, one accent per theme, selection states on a muted
+   accent surface (--kora-accent-soft) instead of an over-bright accent. */
+
 :root,
 [data-theme='dark'] {
-  --kora-bg: 10 10 10;
-  --kora-surface: 17 17 17;
-  --kora-card: 26 26 26;
-  --kora-border: 42 42 42;
-  --kora-text: 229 229 229;
-  --kora-muted: 115 115 115;
-  --kora-accent: 59 130 246;
-  --kora-accent-hover: 37 99 235;
-  --kora-success: 34 197 94;
+  --kora-bg: 17 20 24;
+  --kora-surface: 25 30 36;
+  --kora-card: 32 38 46;
+  --kora-border: 48 57 68;
+  --kora-text: 237 241 247;
+  --kora-muted: 155 167 183;
+  --kora-accent: 57 116 217;
+  --kora-accent-hover: 76 137 235;
+  --kora-accent-soft: 42 66 99;
+  --kora-success: 45 182 110;
   --kora-warning: 234 179 8;
   --kora-error: 239 68 68;
 }
@@ -24,22 +29,24 @@
   --kora-border: 56 30 28;
   --kora-text: 242 232 229;
   --kora-muted: 154 133 131;
-  --kora-accent: 224 80 66;
-  --kora-accent-hover: 201 63 51;
+  --kora-accent: 216 91 85;
+  --kora-accent-hover: 226 107 101;
+  --kora-accent-soft: 86 51 48;
   --kora-success: 74 222 128;
   --kora-warning: 251 191 36;
   --kora-error: 248 113 113;
 }
 
 [data-theme='light'] {
-  --kora-bg: 245 245 245;
+  --kora-bg: 233 237 242;
   --kora-surface: 255 255 255;
-  --kora-card: 255 255 255;
-  --kora-border: 226 226 226;
-  --kora-text: 30 30 30;
-  --kora-muted: 120 120 120;
-  --kora-accent: 198 40 35;
-  --kora-accent-hover: 168 30 26;
+  --kora-card: 244 246 248;
+  --kora-border: 214 220 228;
+  --kora-text: 32 39 51;
+  --kora-muted: 104 117 134;
+  --kora-accent: 198 78 78;
+  --kora-accent-hover: 176 67 67;
+  --kora-accent-soft: 244 227 227;
   --kora-success: 22 163 74;
   --kora-warning: 202 138 4;
   --kora-error: 220 38 38;
@@ -50,11 +57,12 @@
   --kora-bg: 43 51 80;
   --kora-surface: 58 64 80;
   --kora-card: 65 74 94;
-  --kora-border: 89 100 124;
+  --kora-border: 51 51 75;
   --kora-text: 232 236 246;
   --kora-muted: 139 148 173;
-  --kora-accent: 43 92 217;
-  --kora-accent-hover: 58 107 234;
+  --kora-accent: 120 96 216;
+  --kora-accent-hover: 139 116 230;
+  --kora-accent-soft: 56 48 82;
   --kora-success: 52 211 153;
   --kora-warning: 250 204 21;
   --kora-error: 248 113 113;
@@ -134,12 +142,12 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: rgb(var(--kora-border));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a3a;
+  background: rgb(var(--kora-muted));
 }
 
 .drag {

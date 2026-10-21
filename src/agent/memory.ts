@@ -30,6 +30,7 @@ const INITIAL_MEMORY_BANK: MemoryBank = {
 export function useMemory() {
   const bankRef = useRef<MemoryBank>(INITIAL_MEMORY_BANK)
 
+/** Append an entry, routing it to a bank by role (user → short-term, else long-term). */
   const addEntry = useCallback((entry: Omit<MemoryEntry, 'id' | 'timestamp'>): MemoryEntry => {
     const entryWithIdAndTimestamp: MemoryEntry = {
       id: crypto.randomUUID(),
@@ -51,6 +52,7 @@ export function useMemory() {
     return entryWithIdAndTimestamp
   }, [])
 
+/** Every entry, oldest first — the order the model must see the conversation in. */
   const getFullHistory = useCallback((): MemoryEntry[] => {
     // Merge all banks and sort chronologically. Entry routing splits messages
     // by role (user -> shortTerm, assistant -> longTerm), so concatenating the

@@ -8,6 +8,8 @@
  * SSE parsing always flushes the tail buffer (the last chunk is never lost) and
  * releases the reader lock.
  */
+import { RateLimiter } from '../lib/rate-limit'
+/** One turn of a conversation as the providers expect it. */
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -34,6 +36,7 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   'reduce the length',
 ]
 
+/** Map an HTTP status + body onto a retry decision. */
 function classifyHttpError(status: number, body: string): FailoverReason {
   if (status === 429) return 'rate_limit'
   if (status === 401 || status === 403) return 'auth'
@@ -47,6 +50,13 @@ function classifyHttpError(status: number, body: string): FailoverReason {
   return 'unknown'
 }
 
+/**
+ * Classify a transport-level failure (no HTTP response at all).
+ *
+ * Timeout is separated from other network errors because they deserve different waits:
+ * a timeout usually means the request was too big, while a connection error usually means
+ * a transient blip worth retrying sooner.
+ */
 function classifyNetworkError(err: unknown): FailoverReason {
   const e = err as { name?: string; message?: string; code?: string }
   if (e?.name === 'AbortError') return 'timeout'
@@ -68,10 +78,22 @@ function classifyNetworkError(err: unknown): FailoverReason {
   return 'unknown'
 }
 
+/**
+ * Retry only transient causes.
+ *
+ * `auth`, `model_not_found` and `context_overflow` are excluded: retrying them wastes the
+ * user's time and money, and context overflow is handled by trimming history instead.
+ */
 function isRetryable(reason: FailoverReason): boolean {
   return reason === 'rate_limit' || reason === 'server_error' || reason === 'network' || reason === 'timeout'
 }
 
+/**
+ * Wait between retries, aborting early if the user pressed Stop.
+ *
+ * Abort-aware on purpose: a 15 s backoff that cannot be cancelled means the Stop button
+ * appears broken for the duration of the wait.
+ */
 function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -87,11 +109,30 @@ function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
   })
 }
 
+/**
+ * An LLM failure carrying a machine-readable reason.
+ *
+ * The reason travels in the *message* as a `[kora:<reason>]` marker rather than as a
+ * property, because that is what survives IPC serialisation to the renderer and back.
+ */
 class LlmError extends Error {
   reason: FailoverReason
   constructor(reason: FailoverReason, message: string) {
     super(`[kora:${reason}] ${message}`)
     this.reason = reason
+  }
+}
+
+// Security review 2026-09-25: cap the request START rate so a looping or
+// prompt-injected agent cannot burn provider credits unbounded (closes
+// "Rate limiting on LLM calls"). The error uses the existing retryable
+// `rate_limit` marker, so callers' backoff policy keeps working unchanged.
+const llmRateLimiter = new RateLimiter(30, 60_000)
+
+/** Spend one slot or throw a retryable `rate_limit` error. */
+function assertRateLimit(op: string): void {
+  if (!llmRateLimiter.tryAcquire()) {
+    throw new LlmError('rate_limit', `Local rate limit reached (${op}): max 30 LLM requests per minute`)
   }
 }
 
@@ -104,6 +145,13 @@ interface FetchResult {
  * Fetch with classification-driven retries: rate_limit / server_error /
  * network / timeout are retried with jittered backoff honoring Retry-After;
  * auth / model_not_found / context_overflow fail fast.
+ */
+/**
+ * One HTTP call, retried on transient failures.
+ *
+ * Backoff is jittered and honours `Retry-After` when the provider sends one — a provider
+ * that says "wait 30 s" knows something we do not, and retrying sooner would extend the
+ * block. Non-retryable reasons throw immediately.
  */
 async function fetchWithRetry(
   url: string,
@@ -147,6 +195,7 @@ async function fetchWithRetry(
   throw lastError ?? new LlmError('unknown', 'Request failed')
 }
 
+/** Auth and content-type headers for a provider. Anthropic needs both, OpenAI only the key. */
 function getHeaders(apiKey: string, provider: string): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
 
@@ -165,6 +214,7 @@ function getHeaders(apiKey: string, provider: string): Record<string, string> {
   return headers
 }
 
+/** Pick the model to request, falling back to a sane default when none is selected. */
 function getModel(model: string, provider: string): string {
   if (provider === 'anthropic') return model || 'claude-3-5-sonnet-20241022'
   if (provider === 'openrouter') return model || 'openai/gpt-3.5-turbo'
@@ -184,6 +234,13 @@ export function isJsonModeRejected(err: unknown): boolean {
   return /response_format|json_object|json mode|json format/i.test(msg)
 }
 
+/**
+ * Build the request body for a provider.
+ *
+ * Two shapes exist: OpenAI-style `messages`, and Anthropic's `system` + `messages` split
+ * — which is why this is not a one-liner. `jsonMode` is only requested where the provider
+ * supports it; a provider that rejects it is retried without (see `isJsonModeRejected`).
+ */
 export function buildBody(
   messages: ChatMessage[],
   model: string,
@@ -222,11 +279,13 @@ export function buildBody(
   return body
 }
 
+/** Completion endpoint for a provider's base URL. */
 function getEndpoint(baseUrl: string, provider: string): string {
   if (provider === 'anthropic') return `${baseUrl}/v1/messages`
   return `${baseUrl}/v1/chat/completions`
 }
 
+/** Model-listing endpoint — Anthropic has none, which is why this returns `''`. */
 function getModelsEndpoint(baseUrl: string, provider: string): string {
   if (provider === 'anthropic') return ''
   return `${baseUrl}/v1/models`
@@ -292,7 +351,15 @@ async function* streamReader(reader: ReadableStreamDefaultReader<Uint8Array>, pr
   }
 }
 
+/**
+ * Provider entry point: every chat request leaves through this class.
+ *
+ * Keeping the provider matrix here rather than in the IPC layer means the renderer
+ * cannot construct a request that bypasses the rate limiter, the retry policy or the error
+ * classification — all three live behind this one door.
+ */
 export class APIClient {
+  /** One-shot, non-streaming completion. Used by the agent's decision calls and tests. */
   static async chat(
     messages: ChatMessage[],
     apiKey: string,
@@ -303,6 +370,7 @@ export class APIClient {
     jsonMode?: boolean,
   ): Promise<string> {
     if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama' && provider !== 'llamacpp') throw new Error('API key is required')
+    assertRateLimit('chat')
 
     const endpoint = getEndpoint(baseUrl, provider)
     const finalModel = getModel(model, provider)
@@ -342,6 +410,13 @@ export class APIClient {
     return content
   }
 
+  /**
+   * Streamed completion, pushing text deltas to `onChunk`.
+   *
+   * This is the path the chat uses. The termination strings (`[DONE]`, `[ERROR] …`) are
+   * part of the renderer contract and are emitted in a `finally` block, so an abort, a
+   * timeout and a normal end all look the same to the UI.
+   */
   static async chatStream(
     messages: ChatMessage[],
     onChunk: (chunk: string) => void,
@@ -354,6 +429,7 @@ export class APIClient {
     jsonMode?: boolean,
   ): Promise<void> {
     if (!apiKey && provider !== 'lmstudio' && provider !== 'ollama' && provider !== 'llamacpp') throw new Error('API key is required')
+    assertRateLimit('chatStream')
 
     const endpoint = getEndpoint(baseUrl, provider)
     const finalModel = getModel(model, provider)
@@ -388,6 +464,7 @@ export class APIClient {
     }
   }
 
+  /** Model ids the provider offers, for the settings dropdown. */
   static async listModels(
     baseUrl: string,
     apiKey: string,
@@ -413,6 +490,7 @@ export class APIClient {
     }
   }
 
+  /** Reachability probe behind the Settings "Test connection" button. */
   static async testConnection(
     apiKey: string,
     baseUrl: string,

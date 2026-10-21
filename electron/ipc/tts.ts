@@ -1,6 +1,11 @@
 import { ipcMain } from 'electron'
 import { TTSService } from '../services/tts'
 
+/**
+ * Text → audio. The renderer gets base64 rather than a Buffer because IPC only
+ * structured-clones JSON-safe values, and a hand-rolled decode avoids a second
+ * dependency in the browser bundle.
+ */
 export function registerTTSHandlers() {
   ipcMain.handle('tts:synthesize', async (_event, text: string, voice?: string) => {
     try {

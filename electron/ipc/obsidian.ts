@@ -3,6 +3,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { config } from '../services/config'
 
+/** A note in the vault graph. */
 interface ObsidianNode {
   id: string
   title: string
@@ -11,6 +12,7 @@ interface ObsidianNode {
   tags: string[]
 }
 
+/** The whole graph: every note plus the `[[wiki links]]` between them. */
 interface ObsidianGraph {
   nodes: ObsidianNode[]
   links: { source: string; target: string }[]
@@ -26,11 +28,13 @@ const MAX_SCAN_DEPTH = 15
 const SCAN_CACHE_TTL_MS = 30_000
 let scanCache: { vault: string; at: number; graph: ObsidianGraph } | null = null
 
+/** Drop a UTF-8 BOM — without it the first `#tag` in a note is missed. */
 function stripBom(s: string): string {
   return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s
 }
 
 /** Iterative scan with symlink protection and a hard cap on file count/depth. */
+/** Every `.md` file in the vault, skipping Obsidian's own directories and staying bounded. */
 async function listVaultFiles(vault: string): Promise<string[]> {
   const files: string[] = []
   const queue: Array<{ dir: string; depth: number }> = [{ dir: vault, depth: 0 }]
@@ -61,6 +65,7 @@ async function listVaultFiles(vault: string): Promise<string[]> {
   return files.sort()
 }
 
+/** Read one note, or `null` when it disappeared or is unreadable — a race the caller tolerates. */
 async function readVaultFile(file: string): Promise<string | null> {
   let content: string
   try {
@@ -73,6 +78,7 @@ async function readVaultFile(file: string): Promise<string | null> {
   return content
 }
 
+/** A node's display name: frontmatter title, else the first heading, else the file name. */
 function extractTitle(filePath: string, content: string): string {
   const firstLine = content.split(/\r?\n/, 1)[0] ?? ''
   const h1 = /^#\s+(.+)$/.exec(firstLine.trim())
@@ -80,6 +86,7 @@ function extractTitle(filePath: string, content: string): string {
   return path.basename(filePath, '.md')
 }
 
+/** `#tags` found in the body and in YAML frontmatter, de-duplicated. */
 function extractTags(content: string): string[] {
   const tags = new Set<string>()
   for (const line of content.split(/\r?\n/)) {
@@ -93,6 +100,7 @@ function extractTags(content: string): string[] {
   return [...tags]
 }
 
+/** `[[wiki links]]` and `[text](note.md)` targets, as raw link text. */
 function extractLinks(content: string): string[] {
   const links = new Set<string>()
   const re = /\[\[([^\]|#]+)(?:#[^\]]*)?(?:\|[^\]]*)?\]\]/g
@@ -103,6 +111,7 @@ function extractLinks(content: string): string[] {
   return [...links]
 }
 
+/** The configured vault, or an error explaining that none is set. */
 function vaultPathOrThrow(): string {
   const vault = (config.get() as any).obsidianVaultPath as string
   if (!vault || !vault.trim()) {
@@ -111,6 +120,12 @@ function vaultPathOrThrow(): string {
   return vault.trim()
 }
 
+/**
+ * Read the whole vault and build the node/link graph.
+ *
+ * Bounded on purpose (`MAX_SCAN_FILES`, `MAX_SCAN_DEPTH`): a vault is user-supplied
+ * directory, and an unbounded walk over, say, a home directory would hang the app.
+ */
 async function scanVault(): Promise<ObsidianGraph> {
   const vault = vaultPathOrThrow()
 
@@ -178,6 +193,7 @@ async function scanVault(): Promise<ObsidianGraph> {
   return { nodes, links }
 }
 
+/** Obsidian IPC: pick a vault, scan it, and read one note. */
 export function registerObsidianHandlers() {
   ipcMain.handle('obsidian:scan', async (): Promise<ObsidianGraph> => {
     try {
@@ -215,10 +231,15 @@ export function registerObsidianHandlers() {
   ipcMain.handle('obsidian:pickVault', async (e): Promise<{ success: boolean; path?: string; error?: string }> => {
     try {
       const win = BrowserWindow.fromWebContents(e.sender)
-      const result = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : {
+      // NOTE: options must be passed in BOTH branches — passing only the window
+      // (showOpenDialog(win)) falls back to the default file picker instead of a folder.
+      const options: Electron.OpenDialogOptions = {
         title: 'Select Obsidian vault folder',
         properties: ['openDirectory'],
-      } as any)
+      }
+      const result = win && !win.isDestroyed()
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options)
       if (result.canceled || result.filePaths.length === 0) {
         return { success: false, error: 'cancelled' }
       }

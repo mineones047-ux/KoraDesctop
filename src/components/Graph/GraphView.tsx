@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import type { ObsidianGraph, ObsidianNode } from '../../types'
 import type { Locale } from '../../i18n'
 import { useI18n } from '../../hooks/useI18n'
+import { plural } from '../../i18n'
 
 interface GraphViewProps {
   lang: Locale
@@ -32,6 +33,13 @@ interface PhysNode {
   links: number
 }
 
+/**
+ * Pick a stable colour for a vault folder.
+ *
+ * Hashed rather than random so a folder keeps its colour across reloads, and over a
+ * *fixed* palette so two adjacent folders in the graph are unlikely to collide — a
+ * sequential gradient would give neighbouring hashes indistinguishable shades.
+ */
 function folderColor(folder: string): string {
   let hash = 0
   for (let i = 0; i < folder.length; i++) {
@@ -40,6 +48,14 @@ function folderColor(folder: string): string {
   return FOLDER_COLORS[hash % FOLDER_COLORS.length]
 }
 
+/**
+ * Force-launched knowledge graph over an Obsidian vault.
+ *
+ * Reads the vault through the main process, builds a force-directed layout, and renders it
+ * to a canvas rather than to SVG/DOM nodes — a few thousand notes as DOM elements would
+ * make the browser, not the layout, the bottleneck. Node selection and "send to chat" are
+ * the two interactions worth knowing about.
+ */
 export function GraphView({ lang, vaultPath, graphLinkColor, graphNodeColor, onSendToChat, onSetVault }: GraphViewProps) {
   const t = useI18n(lang)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -405,7 +421,11 @@ export function GraphView({ lang, vaultPath, graphLinkColor, graphNodeColor, onS
         // counter
         ctx.font = '12px Inter, sans-serif'
         ctx.fillStyle = muted
-        ctx.fillText(`${nodes.length} ${t.graph.notes}`, 14, 22)
+        ctx.fillText(
+          `${nodes.length} ${plural(lang, nodes.length, { one: t.graph.noteOne, few: t.graph.noteFew, many: t.graph.notes })}`,
+          14,
+          22,
+        )
       }
 
       raf = requestAnimationFrame(step)
@@ -592,7 +612,7 @@ export function GraphView({ lang, vaultPath, graphLinkColor, graphNodeColor, onS
                 type="button"
                 onClick={btn.action}
                 title={btn.title}
-                className="w-9 h-9 flex items-center justify-center rounded-xl bg-kora-surface/90 backdrop-blur border border-kora-border text-kora-muted hover:text-kora-text hover:border-kora-accent transition-colors shadow-lg"
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-kora-surface/90 backdrop-blur border border-kora-border text-kora-muted hover:text-kora-text hover:border-kora-accent transition-colors shadow-lg active:scale-95"
               >
                 {btn.icon}
               </button>
@@ -647,8 +667,7 @@ export function GraphView({ lang, vaultPath, graphLinkColor, graphNodeColor, onS
                 className="px-4 py-2.5 bg-kora-card border border-kora-border rounded-full text-sm text-kora-muted hover:text-kora-text transition-colors"
               >
                 {t.graph.close}
-              </button>
-              {selected.content && (
+              </button>                  {selected.content && (
                 <button
                   onClick={() => {
                     const content = selected.content.length > MAX_CONTEXT
@@ -657,7 +676,7 @@ export function GraphView({ lang, vaultPath, graphLinkColor, graphNodeColor, onS
                     onSendToChat(`📄 ${selected.node.title}\n${content}`)
                     setSent(true)
                   }}
-                  className="px-4 py-2.5 bg-kora-accent text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity"
+                  className="px-5 py-2.5 bg-kora-accent text-white rounded-full text-sm font-medium hover:opacity-90 transition-opacity shadow-lg shadow-kora-accent/25"
                 >
                   {sent ? '✓' : t.graph.sendToChat}
                 </button>

@@ -3,6 +3,7 @@ import { COMMANDS } from '../../types'
 import type { Locale } from '../../i18n'
 import { useI18n } from '../../hooks/useI18n'
 
+/** The composer: text input, `!` command autocomplete, TTS and microphone controls. */
 interface InputBarProps {
   lang: Locale
   onSend: (message: string) => void
@@ -22,6 +23,13 @@ interface InputBarProps {
   onStopGenerate?: () => void
 }
 
+/**
+ * The message composer.
+ *
+ * Memoised for the same reason as `MessageBubble` — it sits directly above the streaming
+ * message, so an unstable identity here would re-render the whole input on every token and
+ * can drop focus mid-typing.
+ */
 export const InputBar = memo(function InputBar({
   lang, onSend, isLoading, onToggleTTS, isSpeaking, hasMessages,
   volume = 1, isMuted = false, onToggleMute, onVolumeChange,
@@ -61,6 +69,9 @@ export const InputBar = memo(function InputBar({
   const cmdRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // Every entry of COMMANDS needs a row here: the render falls back to `cmd.desc`
+  // (a hardcoded English string in types/index.ts), so a missing key silently puts an
+  // English label in an otherwise translated menu.
   const cmdDescs = useMemo(() => ({
     '!shell': t.commands.shell,
     '!file': t.commands.file,
@@ -72,6 +83,23 @@ export const InputBar = memo(function InputBar({
     '!mkdir': t.commands.mkdir,
     '!stat': t.commands.stat,
     '!exists': t.commands.exists,
+    '!calc': t.commands.calc,
+    '!random': t.commands.random,
+    '!uuid': t.commands.uuid,
+    '!time': t.commands.time,
+    '!shutdown': t.commands.shutdown,
+    '!restart': t.commands.restart,
+    '!sleep': t.commands.sleep,
+    '!lock': t.commands.lock,
+    '!volume': t.commands.volume,
+    '!mute': t.commands.mute,
+    '!brightness': t.commands.brightness,
+    '!windows': t.commands.windows,
+    '!find': t.commands.find,
+    '!clipboard': t.commands.clipboard,
+    '!search': t.commands.search,
+    '!confirm': t.commands.confirm,
+    '!deny': t.commands.deny,
     '!help': t.commands.help,
   }), [t])
 

@@ -1,3 +1,11 @@
+/**
+ * Filesystem roots and system directories that mutating tools must never touch.
+ *
+ * A denylist, so it is not sufficient on its own — which is why the write path *also*
+ * runs in the main process, and why the Tauri build puts process containment behind it.
+ * This is the innermost, cheapest layer: it keeps an obviously catastrophic `rm -rf` from
+ * ever being dispatched.
+ */
 const DANGEROUS_ROOTS = [
   '/',
   'C:\\',
@@ -10,6 +18,7 @@ const DANGEROUS_ROOTS = [
   'F:',
 ]
 
+/** Specific directories that hold the OS or user credentials. */
 const DANGEROUS_PATHS = [
   '/etc',
   '/bin',
@@ -29,6 +38,19 @@ const DANGEROUS_PATHS = [
   'C:\\System Volume Information',
 ]
 
+/**
+ * Collapse a path to a canonical *textual* form: one separator style, no `.`/`..`, and no
+ * filesystem access.
+ *
+ * Doing this with string manipulation rather than `realpath` is deliberate. `..` must be
+ * resolved *before* deciding, because `C:\Users\x\..\..\Windows` is only recognisable as a
+ * system path after collapsing; and comparing text avoids the problem that a path which
+ * does not exist yet (a file about to be created) cannot be resolved at all.
+ *
+ * The trade-off is that this does not follow symlinks — the check is on the path as
+ * written, so a symlink pointing at `C:\Windows` still passes. That gap is covered by the
+ * main process, which resolves the real path before writing.
+ */
 function normalizePath(p: string): string {
   // Normalize separators and resolve relative components
   // Preserve the leading slash/backslash for absolute paths
@@ -47,6 +69,7 @@ function normalizePath(p: string): string {
   return (isAbsolute ? '\\' : '') + resolved.join('\\')
 }
 
+/** Does this normalised path hit a root or a protected directory? Returns the reason, or null. */
 function isDangerousPath(normalized: string): string | null {
   const lower = normalized.toLowerCase()
 

@@ -2,7 +2,19 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { MCPManager } from '../services/mcp/manager'
 import { MCPServerConfig } from '../services/mcp/config'
 
+/**
+ * IPC surface of the MCP manager, consumed by the settings UI and the agent.
+ *
+ * Takes the manager and a window getter rather than importing singletons, so tests can
+ * drive it with a fake manager and a fake window.
+ *
+ * Manager errors are returned as `{success: false, error}` throughout: a server that
+ * refuses to start is an expected state the settings panel renders, not an exception to
+ * propagate across IPC.
+ */
 export function registerMCPHandlers(getWindow: () => BrowserWindow | null, manager: MCPManager) {
+  // Any change to server list/status is pushed to the renderer so the settings panel
+  // stays in sync even when the change came from outside (auto-start, crash, crash-restart).
   const broadcast = () => {
     const w = getWindow()
     if (w && !w.isDestroyed()) {

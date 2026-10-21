@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 
+/** What the microphone feature exposes to the input bar. */
 interface SpeechRecognitionHook {
   isListening: boolean
   isSupported: boolean
@@ -9,6 +10,12 @@ interface SpeechRecognitionHook {
   error: string | null
 }
 
+/**
+ * Browser typings for the Web Speech API.
+ *
+ * Hand-declared rather than pulled from `@types/dom-speech-recognition`: the API is
+ * vendor-prefixed and this project depends on exactly three members of it.
+ */
 declare global {
   interface Window {
     SpeechRecognition: new () => SpeechRecognitionInstance
@@ -53,6 +60,15 @@ interface SpeechRecognitionErrorEvent {
   message: string
 }
 
+/**
+ * Dictation through the browser's Web Speech API.
+ *
+ * Availability is the important part: the API is Chromium-only and **absent from
+ * WebView2**, which is what the Tauri shell runs in. `isSupported` is therefore checked
+ * up front and the input bar hides the mic button when it is false, rather than
+ * offering a control that silently does nothing. For a Tauri build, `useWhisperSTT` is
+ * the working alternative (docs/ROADMAP.md §6.6).
+ */
 export function useSpeechRecognition(onResult: (text: string) => void, onInterim?: (text: string) => void): SpeechRecognitionHook {
   const [isListening, setIsListening] = useState(false)
   const [interimText, setInterimText] = useState('')

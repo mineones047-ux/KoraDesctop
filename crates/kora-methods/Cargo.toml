@@ -1,0 +1,21 @@
+[package]
+name = "kora-methods"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kora kora-rpc/1 method table: the fs/shell/config/chats domains in Rust with in-core security re-validation and sandbox containment (Rust port of core/methods.ts)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+tokio.workspace = true
+kora-security = { path = "../kora-security" }
+kora-sandbox = { path = "../kora-sandbox" }
+kora-store = { path = "../kora-store" }
+kora-rpc = { path = "../kora-rpc" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

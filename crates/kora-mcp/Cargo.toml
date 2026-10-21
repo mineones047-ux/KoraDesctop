@@ -4,14 +4,17 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Kora MCP client and manager: JSON-RPC 2.0 over stdio, lifecycle, lazy start (Rust port of electron/services/mcp/*)"
+description = "Kora MCP client: the official rmcp SDK drives the protocol; this crate adds Kora's naming, containment and config policy"
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-once_cell.workspace = true
+async-trait.workspace = true
 tokio.workspace = true
+rmcp.workspace = true
+kora-security = { path = "../kora-security" }
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio.workspace = true

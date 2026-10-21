@@ -83,7 +83,13 @@ async function main() {
     path.join(OUT, 'mcp', 'package.json'),
   )
 
-  console.log('[KORA] main-process bundle built -> dist-electron/ (+ mcp/ servers)')
+  // The headless core (`node dist-electron/core-cli.mjs`, docs/CORE_RPC.md §1).
+  // It has to be rebuilt here: the rmSync above clears dist-electron, so leaving
+  // it to a separate command would ship an installer without the CLI.
+  const { buildCoreCli } = require('./build-core-cli.cjs')
+  await buildCoreCli()
+
+  console.log('[KORA] main-process bundle built -> dist-electron/ (+ mcp/ servers, core-cli.mjs)')
 }
 
 main().catch((error) => {

@@ -1,8 +1,10 @@
-﻿import { useState, useMemo } from 'react'
+﻿import { useState, useMemo, type RefObject } from 'react'
 import type { Chat } from '../../types'
 import { useI18n } from '../../hooks/useI18n'
+import { plural } from '../../i18n'
 import type { Locale } from '../../i18n'
 
+/** Everything the sidebar renders is a prop — it holds no state beyond its own UI concerns. */
 interface SidebarProps {
   lang: Locale
   chats: Chat[]
@@ -17,10 +19,19 @@ interface SidebarProps {
   onOpenAgent: () => void
   onOpenGraph: () => void
   onOpenChat: () => void
+  /** Attached to the search field so `Ctrl/Cmd+K` can focus it from the window listener. */
+  searchInputRef?: RefObject<HTMLInputElement>
 }
 
+/**
+ * The chat list: history search, rename-in-place, delete, and the panel switchers.
+ *
+ * It owns only presentational state (which row is hovered, which is being renamed, the
+ * search text). Every action is a callback, so the same component works for the chat and
+ * graph views — `view` only decides which switcher button reads as active.
+ */
 export function Sidebar({
-  lang, chats, activeChatId, view, onSelectChat, onCreateChat, onDeleteChat, onRenameChat, onOpenSettings, onOpenSystem, onOpenAgent, onOpenGraph, onOpenChat,
+  lang, chats, activeChatId, view, onSelectChat, onCreateChat, onDeleteChat, onRenameChat, onOpenSettings, onOpenSystem, onOpenAgent, onOpenGraph, onOpenChat, searchInputRef,
 }: SidebarProps) {
   const t = useI18n(lang)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -62,7 +73,7 @@ export function Sidebar({
       <div className="p-3 border-b border-kora-border space-y-2">
         <button
           onClick={onCreateChat}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-kora-card hover:bg-kora-accent/10 border border-kora-border hover:border-kora-accent rounded-xl text-sm font-medium text-kora-text transition-all"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-kora-accent-soft hover:bg-kora-accent/30 border border-transparent rounded-xl text-sm font-semibold text-kora-text transition-all"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -80,6 +91,7 @@ export function Sidebar({
             <path d="M9.5 9.5l3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
           </svg>
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -110,7 +122,12 @@ export function Sidebar({
           <>
             {searchQuery && (
               <p className="px-3 pb-1 text-[10px] text-kora-muted font-medium">
-                {filteredChats.length} {filteredChats.length === 1 ? t.sidebar.result : t.sidebar.results}
+                {filteredChats.length}{' '}
+                {plural(lang, filteredChats.length, {
+                  one: t.sidebar.result,
+                  few: t.sidebar.resultFew,
+                  many: t.sidebar.results,
+                })}
               </p>
             )}
             {filteredChats.map((chat) => (
@@ -121,7 +138,7 @@ export function Sidebar({
                 onMouseLeave={() => setHoveredId(null)}
                 className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
                   chat.id === activeChatId
-                    ? 'bg-kora-accent/10 border border-kora-accent/30'
+                    ? 'bg-kora-accent-soft border border-kora-accent/40'
                     : 'hover:bg-kora-card border border-transparent'
                 }`}
               >

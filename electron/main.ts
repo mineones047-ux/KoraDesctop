@@ -20,6 +20,7 @@ import { registerTTSHandlers } from './ipc/tts'
 import { registerSTTHandlers } from './ipc/stt'
 import { registerMCPHandlers } from './ipc/mcp'
 import { registerObsidianHandlers } from './ipc/obsidian'
+import { registerLocalAIHandlers } from './ipc/localmodels'
 import { config, registerConfigHandlers } from './services/config'
 import { MCPConfig } from './services/mcp/config'
 import { MCPManager } from './services/mcp/manager'
@@ -180,6 +181,7 @@ app.whenReady().then(async () => {
     registerSTTHandlers()
     registerMCPHandlers(() => mainWindow, mcpManager)
     registerObsidianHandlers()
+    registerLocalAIHandlers(() => mainWindow)
 
     // MCP autostart continues in the background; quit stops whatever has
     // started (the manager's `disposed` flag aborts starts still in flight).

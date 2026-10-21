@@ -50,10 +50,16 @@ export class MCPManager extends EventEmitter {
     this.config = config
   }
 
+  /** The config store, for callers that need to read or edit the raw profile. */
   getConfig(): MCPConfig {
     return this.config
   }
 
+  /**
+   * Autostart every enabled server. Failures are swallowed per server: one bad entry in
+   * the profile must not stop the others from coming up, which is why this is
+   * `allSettled` rather than `all`.
+   */
   async init(): Promise<void> {
     if (this.disposed) return
     await this.config.load()
@@ -63,6 +69,12 @@ export class MCPManager extends EventEmitter {
     )
   }
 
+  /**
+   * Stop every server and clear the caches.
+   *
+   * Sets `disposed` first, so a `startServer` still in flight bails out instead of adding
+   * a client to a map that is being emptied — the lazy-init race on quit.
+   */
   async shutdown(): Promise<void> {
     this.disposed = true
     const stops = Array.from(this.clients.values()).map((c) =>
@@ -74,6 +86,7 @@ export class MCPManager extends EventEmitter {
     this.toolIndex.clear()
   }
 
+  /** Config-derived status for every server, running or not — the settings panel's view. */
   listServers(): MCPServerStatus[] {
     return this.config.getAll().map((s) => {
       const client = this.clients.get(s.id)
@@ -91,10 +104,17 @@ export class MCPManager extends EventEmitter {
     })
   }
 
+  /** The stored definition of one server, or `null` when the id is unknown. */
   getServerConfig(id: string): MCPServerConfig | null {
     return this.config.get(id)
   }
 
+  /**
+   * Start a server, or return the running one.
+   *
+   * Concurrent calls share one in-flight promise: without it, the settings panel and the
+   * agent's first tool call racing each other would spawn two processes for one server.
+   */
   async startServer(id: string): Promise<MCPServerStatus> {
     const cfg = this.config.get(id)
     if (!cfg) throw new Error(`MCP server "${id}" not found`)
@@ -117,6 +137,7 @@ export class MCPManager extends EventEmitter {
     return startPromise
   }
 
+  /** The real start, after the dedup in `startServer`. */
   private async doStart(cfg: MCPServerConfig): Promise<MCPServerStatus> {
     const id = cfg.id
     const existing = this.clients.get(id)
@@ -172,6 +193,7 @@ export class MCPManager extends EventEmitter {
     }
   }
 
+  /** Stop one server and forget its cached tools. */
   async stopServer(id: string): Promise<MCPServerStatus> {
     const client = this.clients.get(id)
     if (client) {
@@ -190,11 +212,19 @@ export class MCPManager extends EventEmitter {
     return { id, name: cfg.name, enabled: cfg.enabled, running: false, toolCount: 0 }
   }
 
+  /** Stop then start — the "apply my config change" path. */
   async restartServer(id: string): Promise<MCPServerStatus> {
     await this.stopServer(id)
     return this.startServer(id)
   }
 
+  /**
+   * Add or replace a server definition.
+   *
+   * A running server whose command or args changed is restarted, because the old process
+   * is running the *old* definition and the panel would otherwise show it as healthy
+   * while behaving per the new config.
+   */
   async upsertServer(server: MCPServerConfig): Promise<MCPServerStatus> {
     this.config.upsert(server)
     const wasRunning = this.clients.get(server.id)?.isRunning() ?? false
@@ -206,6 +236,7 @@ export class MCPManager extends EventEmitter {
     return this.getStatus(server.id)
   }
 
+  /** Stop and forget a server; returns whether it existed. */
   async removeServer(id: string): Promise<boolean> {
     await this.stopServer(id)
     const removed = this.config.remove(id)
@@ -213,6 +244,7 @@ export class MCPManager extends EventEmitter {
     return removed
   }
 
+  /** Enable/disable a server, starting or stopping it to match. */
   async setServerEnabled(id: string, enabled: boolean): Promise<MCPServerStatus> {
     const had = this.config.get(id)
     if (!had) throw new Error(`MCP server "${id}" not found`)
@@ -225,6 +257,7 @@ export class MCPManager extends EventEmitter {
     return this.getStatus(id)
   }
 
+  /** One server's current state, including a placeholder entry for unknown ids. */
   getStatus(id: string): MCPServerStatus {
     const cfg = this.config.get(id)
     if (!cfg) return { id, name: id, enabled: false, running: false, toolCount: 0, error: 'not found' }
@@ -243,6 +276,12 @@ export class MCPManager extends EventEmitter {
     }
   }
 
+  /**
+   * Every tool from every running server, each tagged with its server.
+   *
+   * A server that fails to answer is skipped rather than aborting the whole list: a
+   * broken server should cost the user that server's tools, not all of them.
+   */
   async getAllTools(): Promise<MCPToolWithServer[]> {
     const all: MCPToolWithServer[] = []
     for (const id of this.clients.keys()) {
@@ -260,6 +299,13 @@ export class MCPManager extends EventEmitter {
     return all
   }
 
+  /**
+   * Invoke a tool by its `mcp__<server>__<tool>` id, starting the server if needed.
+   *
+   * The lookup goes through the cached index so the id never has to be split and guessed
+   * at; a cache miss triggers a refresh before giving up, because a server that started
+   * after the last refresh would otherwise look like it has no such tool.
+   */
   async callTool(fullName: string, args: Record<string, unknown>): Promise<unknown> {
     const indexEntry = this.toolIndex.get(fullName)
     let serverId: string | undefined = indexEntry?.serverId
@@ -296,10 +342,12 @@ export class MCPManager extends EventEmitter {
     return result.content
   }
 
+  /** Transport- and protocol-level counters for the diagnostics panel. */
   getDiagnostics(id: string) {
     return this.clients.get(id)?.getDiagnostics()
   }
 
+  /** Re-read one server's tool list and rebuild the `mcp__…` index for it. */
   private async refreshTools(id: string): Promise<MCPToolWithServer[]> {
     const client = this.clients.get(id)
     if (!client || !client.isRunning()) return []
@@ -322,10 +370,12 @@ export class MCPManager extends EventEmitter {
     return withServer
   }
 
+  /** `[^A-Za-z0-9_-] -> _`, so a tool id is always a safe identifier. */
   private sanitize(s: string): string {
     return s.replace(/[^a-zA-Z0-9_-]/g, '_')
   }
 
+  /** Merge a stored config with the live client state into one status object. */
   private toStatus(cfg: MCPServerConfig, client: MCPClient): MCPServerStatus {
     const tools = this.toolCache.get(cfg.id) ?? []
     return {

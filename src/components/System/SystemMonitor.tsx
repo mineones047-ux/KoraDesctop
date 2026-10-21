@@ -10,6 +10,13 @@ interface SystemMonitorProps {
   onClose: () => void
 }
 
+/**
+ * The System panel: CPU/RAM/disk load and the live process table, with the ability to end
+ * a process.
+ *
+ * A *dumb* component — it takes the data as props from `useSystem` rather than fetching,
+ * so the polling lifecycle stays in the hook and the panel can be rendered from a fixture.
+ */
 export function SystemMonitor({ lang, info, processes, onClose }: SystemMonitorProps) {
   const t = useI18n(lang)
   const [activeTab, setActiveTab] = useState<'overview' | 'processes'>('overview')
@@ -20,16 +27,15 @@ export function SystemMonitor({ lang, info, processes, onClose }: SystemMonitorP
   const memoryPercent = Math.round((usedMemory / info.totalMemory) * 100)
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
-      <div
-        className="w-full max-w-2xl bg-kora-surface border border-kora-border rounded-2xl shadow-2xl animate-slide-up"
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>        <div
+        className="w-full max-w-3xl mx-4 bg-kora-surface border border-kora-border rounded-2xl shadow-2xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-5 border-b border-kora-border">
           <h2 className="text-lg font-semibold text-kora-text">{t.system.title}</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
+            className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -53,7 +59,7 @@ export function SystemMonitor({ lang, info, processes, onClose }: SystemMonitorP
           ))}
         </div>
 
-        <div className="p-5 max-h-[60vh] overflow-y-auto">
+        <div className="p-6 max-h-[85vh] overflow-y-auto">
           {activeTab === 'overview' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -139,6 +145,7 @@ export function SystemMonitor({ lang, info, processes, onClose }: SystemMonitorP
   )
 }
 
+/** Byte count in the largest unit that keeps it readable (B → TB). */
 function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
@@ -150,6 +157,7 @@ function formatBytes(bytes: number): string {
   return `${size.toFixed(1)} ${units[i]}`
 }
 
+/** Uptime as `2d 4h 13m`, omitting units that are zero. */
 function formatUptime(seconds: number): string {
   const secs = Math.max(0, Math.floor(seconds))
   const days = Math.floor(secs / 86400)

@@ -7,6 +7,13 @@ import os from 'os'
 const CHATS_FILE = path.join(os.homedir(), '.kora', 'chats.json')
 const TMP_SUFFIX = '.kora-tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8)
 
+/**
+ * Rewrite untrusted chat data into the exact shape the app expects.
+ *
+ * Field-by-field rather than `{...c}`: a record from disk must not be able to smuggle in
+ * extra properties. Records without an `id` are dropped — they cannot be addressed and
+ * would break React keys.
+ */
 function sanitizeChats(value: unknown): unknown {
   if (!Array.isArray(value)) return []
   return value
@@ -30,6 +37,13 @@ function sanitizeChats(value: unknown): unknown {
     .filter((c) => c.id)
 }
 
+/**
+ * Read `chats.json`, preserving it if it is unreadable.
+ *
+ * A parse failure renames the file aside instead of returning `[]` in place, because the
+ * next save would otherwise overwrite the user's history with an empty list and make the
+ * corruption unrecoverable.
+ */
 async function loadChatsWithBackup(): Promise<unknown[]> {
   let content: string
   try {
@@ -54,6 +68,13 @@ async function loadChatsWithBackup(): Promise<unknown[]> {
   }
 }
 
+/**
+ * Persisted chat history, at the frozen path `~/.kora/chats.json`.
+ *
+ * Everything on disk is treated as untrusted input: `sanitizeChats` rebuilds every
+ * record field-by-field rather than spreading the parsed object, so a hand-edited or
+ * corrupted file cannot inject extra properties into the app's state.
+ */
 export function registerChatHandlers() {
   ipcMain.handle('chats:load', async () => {
     const chats = await loadChatsWithBackup()

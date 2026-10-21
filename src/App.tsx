@@ -9,8 +9,9 @@
  * without stable identities React.memo on MessageBubble/InputBar would
  * re-render on every streamed token (see §11).
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useUnifiedChat } from './hooks/useUnifiedChat'
+import { resolveShortcut } from './lib/shortcuts'
 import { useConfig } from './hooks/useConfig'
 import { useSystem } from './hooks/useSystem'
 import { useTTS } from './hooks/useTTS'
@@ -25,6 +26,19 @@ import { SystemMonitor } from './components/System/SystemMonitor'
 import { AgentDisplay } from './components/Agent/AgentDisplay'
 import { GraphView } from './components/Graph/GraphView'
 
+/**
+ * BCP-47 tags for the Web Speech API, keyed by app language.
+ *
+ * A map rather than a chain of ternaries: every new language has to be added here, and
+ * forgetting is silent — the recogniser would quietly transcribe Chinese speech using an
+ * English model, producing plausible-looking garbage.
+ */
+const RECOGNITION_LOCALE: Record<string, string> = {
+  en: 'en-US',
+  ru: 'ru-RU',
+  zh: 'zh-CN',
+}
+
 function App() {
   const { chats, activeChat, activeChatId, setActiveChatId, createChat, sendMessage, deleteChat, renameChat, isLoading, stopGeneration } = useUnifiedChat()
   const { config, updateConfig } = useConfig()
@@ -36,6 +50,60 @@ function App() {
   const [view, setView] = useState<'chat' | 'graph'>('chat')
 
   const t = useI18n(config.language)
+
+  // Keyboard shortcuts (`Ctrl/Cmd+N`, `Ctrl/Cmd+K`, `Escape`) — the decision logic is
+  // pure and lives in lib/shortcuts.ts, this is only the wiring: which layer a key
+  // closes and which actions the app already exposes.
+  const chatSearchRef = useRef<HTMLInputElement>(null)
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0)
+  const focusedRequest = useRef(0)
+  const openLayers = Number(showSettings) + Number(showSystem) + Number(showAgent)
+
+  const closeTopLayer = useCallback(() => {
+    // Topmost first: the agent panel renders above the monitors, which render above
+    // settings — the same order the JSX below stacks them in.
+    if (showAgent) setShowAgent(false)
+    else if (showSystem) setShowSystem(false)
+    else if (showSettings) setShowSettings(false)
+  }, [showAgent, showSystem, showSettings])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = resolveShortcut(event, { openLayers })
+      if (!action) return
+      event.preventDefault()
+      if (action === 'newChat') {
+        createChat()
+        setView('chat')
+      } else if (action === 'focusChatSearch') {
+        setSearchFocusRequest((n) => n + 1)
+      } else {
+        closeTopLayer()
+      }
+    }
+    globalThis.addEventListener('keydown', onKeyDown)
+    return () => globalThis.removeEventListener('keydown', onKeyDown)
+  }, [openLayers, createChat, closeTopLayer])
+
+  // The search field only exists in the chat view, so the focus has to wait for the
+  // render that follows a switch away from the graph. The ref guard keeps the effect
+  // from re-stealing focus on an unrelated re-render.
+  useEffect(() => {
+    if (searchFocusRequest === 0 || focusedRequest.current === searchFocusRequest) return
+    if (view !== 'chat') {
+      setView('chat')
+      return
+    }
+    focusedRequest.current = searchFocusRequest
+    chatSearchRef.current?.focus()
+    chatSearchRef.current?.select()
+  }, [searchFocusRequest, view])
+
+  // `<html lang>` is a static `en` in index.html; keep it in step with the UI so that
+  // screen readers, spell-check and CJK line-breaking behave like the language shown.
+  useEffect(() => {
+    document.documentElement.lang = config.language
+  }, [config.language])
 
   // Speech recognition
   const [speechInterim, setSpeechInterim] = useState('')
@@ -82,7 +150,9 @@ function App() {
   )
 
   const handleStartListening = useCallback(
-    () => voiceEngine.startListening(config.language === 'ru' ? 'ru-RU' : 'en-US'),
+    // Match the app language to a BCP-47 tag the recogniser accepts. Falling through to
+  // `en-US` for Chinese would mean dictation is transcribed in the wrong language.
+  () => voiceEngine.startListening(RECOGNITION_LOCALE[config.language] ?? 'en-US'),
     [voiceEngine.startListening, config.language]
   )
 
@@ -111,6 +181,7 @@ function App() {
           onOpenAgent={() => setShowAgent(true)}
           onOpenGraph={() => setView('graph')}
           onOpenChat={() => setView('chat')}
+          searchInputRef={chatSearchRef}
         />
 
         {view === 'graph' ? (

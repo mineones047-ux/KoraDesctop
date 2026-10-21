@@ -218,7 +218,8 @@ export interface ConfigData {
   activeTemplate: string
   ttsVoice: string
   theme: ThemeId
-  language: 'en' | 'ru'
+  /** UI locale — must stay in sync with `Locale` in `src/i18n/index.ts`. */
+  language: 'en' | 'ru' | 'zh'
   obsidianVaultPath: string
   graphLinkColor: string
   graphNodeColor: string
@@ -337,8 +338,92 @@ declare global {
         readNote: (id: string) => Promise<{ success: boolean; content?: string; error?: string }>
         pickVault: () => Promise<{ success: boolean; path?: string; error?: string }>
       }
+      localAI: {
+        profile: () => Promise<{ profile: PcProfileInfo; recommendation: LocalAIRecommendation }>
+        search: (query: string) => Promise<{ success: boolean; models: HfModelEntry[]; error?: string }>
+        files: (repoId: string) => Promise<{ success: boolean; files: HfGgufFile[]; error?: string }>
+        download: (repoId: string, file: string) => Promise<{ success: boolean; model?: DownloadedModel; error?: string }>
+        cancel: (repoId: string, file: string) => Promise<{ success: boolean }>
+        list: () => Promise<{ success: boolean; models: DownloadedModel[] }>
+        remove: (repoId: string, file: string) => Promise<{ success: boolean; error?: string }>
+        engineStatus: () => Promise<{ success: boolean; status: EngineStatusInfo }>
+        downloadEngine: () => Promise<{ success: boolean; binaryPath?: string; error?: string }>
+        start: (repoId: string, file: string) => Promise<{ success: boolean; modelId?: string | null; external?: boolean; port?: number; error?: string }>
+        stop: () => Promise<{ success: boolean; stopped?: boolean; external?: boolean; error?: string }>
+        onProgress: (callback: (payload: LocalAIProgress) => void) => () => void
+      }
     }
   }
+}
+
+/** Hardware of the current machine, as seen by the Local AI tab. */
+export interface PcProfileInfo {
+  ramGb: number
+  cpuCores: number
+  vramGb: number | null
+}
+
+/** The model class this PC should run (biggest that fits, quant that fits it). */
+export interface LocalAIRecommendation {
+  maxParamsB: number
+  quant: string
+}
+
+/** A GGUF repo returned by the Hugging Face search. */
+export interface HfModelEntry {
+  id: string
+  downloads: number
+  likes: number
+  paramsB: number | null
+}
+
+/** One downloadable `.gguf` inside a repo. */
+export interface HfGgufFile {
+  path: string
+  sizeBytes: number
+  quant: string
+  paramsB: number | null
+  /** Set for split models: the shared `name-00001-of-00002` prefix. */
+  shardPrefix?: string
+  /** Filled in by the `localai:files` handler: best file for this PC. */
+  recommended?: boolean
+}
+
+/** A model already stored under `~/.kora/models/` (survives restarts). */
+export interface DownloadedModel {
+  repoId: string
+  file: string
+  files: string[]
+  quant: string
+  paramsB: number | null
+  sizeBytes: number
+  path: string
+  downloadedAt: number
+}
+
+/** llama.cpp engine/server state for the Local AI tab. */
+export interface EngineStatusInfo {
+  installed: boolean
+  binaryPath: string | null
+  running: boolean
+  external: boolean
+  port: number | null
+  pid: number | null
+  modelPath: string | null
+}
+
+/** Payload of the `localai:progress` channel (download bars, engine state). */
+export interface LocalAIProgress {
+  kind: 'model' | 'engine' | 'server'
+  key?: string
+  repoId?: string
+  file?: string
+  received?: number
+  total?: number
+  state: 'running' | 'done' | 'error' | 'canceled' | 'stopped'
+  error?: string
+  model?: DownloadedModel
+  exitCode?: number | null
 }
 
 export interface MCPServerConfigInput {

@@ -9,33 +9,23 @@ import { ipcMain, shell } from 'electron'
 import { exec } from 'child_process'
 import os from 'os'
 import { promisify } from 'util'
+import { checkOpenTarget } from '../lib/open-guard'
 
 const execAsync = promisify(exec)
 
-// Blocked paths for openApp to prevent launching system utilities
-const BLOCKED_OPEN_PATHS = [
-  'c:\\windows\\system32\\cmd.exe',
-  'c:\\windows\\system32\\windowspowershell',
-  'c:\\windows\\system32\\regedit.exe',
-  'c:\\windows\\system32\\msconfig.exe',
-  'c:\\windows\\system32\\taskmgr.exe',
-  '/bin/sh',
-  '/bin/bash',
-  '/usr/bin/sudo',
-]
-
-function isBlockedOpenPath(p: string): boolean {
-  const lower = p.toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '')
-  for (const blocked of BLOCKED_OPEN_PATHS) {
-    if (lower === blocked || lower.startsWith(blocked + '\\')) return true
-  }
-  return false
-}
-
+/** Platform branch, so the handlers below can pick a shell command without repeating it. */
 function isWin(): boolean {
   return process.platform === 'win32'
 }
 
+/**
+ * OS-level actions: power, volume, brightness, lock, process list/kill, window list.
+ *
+ * Implemented as platform shell commands (PowerShell/COM on Windows) rather than native
+ * APIs. That is a deliberate trade for the Electron build: it is a lot less code for a
+ * rarely-used feature. The Rust/Tauri port replaces these with direct `windows`-crate
+ * calls, which also removes a process spawn per invocation (docs/ROADMAP.md §6.1).
+ */
 export function registerSystemHandlers() {
   ipcMain.handle('system:info', async () => {
     return {
@@ -84,11 +74,10 @@ export function registerSystemHandlers() {
 
   ipcMain.handle('system:openApp', async (_event, appPath: string) => {
     try {
-      if (typeof appPath !== 'string' || appPath.length === 0 || appPath.length > 4096) {
-        return { success: false, error: 'Invalid path' }
-      }
-      if (isBlockedOpenPath(appPath)) {
-        return { success: false, error: 'Access to system utilities is blocked' }
+      // Blocklist + script/installer extensions (electron/lib/open-guard.ts)
+      const blocked = checkOpenTarget(appPath)
+      if (blocked) {
+        return { success: false, error: blocked }
       }
       const result = await shell.openPath(appPath)
       if (result) {

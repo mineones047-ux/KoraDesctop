@@ -269,12 +269,22 @@ export const BUILTIN_TOOL_METADATA: Record<BuiltinToolId, ToolMetadata> = {
 }
 
 // MCP tool metadata (separate from built-in to allow dynamic updates)
+/**
+ * Discovered MCP tools, keyed by `mcp__<server>__<tool>`.
+ *
+ * A module-level Map rather than registry instance state so the orchestrator and the
+ * settings UI see the same set. Rebuilt wholesale by `setMcpTools` — a server that goes
+ * away must have its tools disappear, otherwise the model would keep calling a tool whose
+ * server is dead.
+ */
 const MCP_TOOL_METADATA = new Map<string, ToolMetadata>()
 
+/** Every tool the agent currently knows about: built-ins plus whatever MCP servers expose. */
 export function getAllToolMetadata(): Record<string, ToolMetadata> {
   return { ...BUILTIN_TOOL_METADATA, ...Object.fromEntries(MCP_TOOL_METADATA) }
 }
 
+/** Replace the MCP tool set. Called whenever servers start, stop or reconnect. */
 function setMcpTools(tools: MCPToolWithServer[]) {
   MCP_TOOL_METADATA.clear()
   for (const t of tools) {
@@ -282,6 +292,19 @@ function setMcpTools(tools: MCPToolWithServer[]) {
   }
 }
 
+/**
+ * Translate an MCP tool's JSON Schema into our parameter metadata.
+ *
+ * `destructiveHint` is the server's own claim about whether the tool modifies state, and
+ * it is the *only* thing that sets `requiresConfirmation` for MCP tools. We trust it for
+ * raising the bar and never for lowering it: an unknown or absent hint must not silently
+ * exempt a tool, because a compromised server could otherwise declare its `rm -rf` tool
+ * safe and the user would never see a prompt.
+ *
+ * Types are flattened to the three the prompt can render; anything else (`object`,
+ * `array`, unions) becomes `string`, which errs toward asking the model for a value we
+ * can pass through as-is.
+ */
 function jsonSchemaToMetadata(t: MCPToolWithServer): ToolMetadata {
   const properties = t.inputSchema?.properties ?? {}
   const required = new Set(t.inputSchema?.required ?? [])
@@ -307,26 +330,46 @@ function jsonSchemaToMetadata(t: MCPToolWithServer): ToolMetadata {
   }
 }
 
+/** Model-supplied arguments are untrusted: take a string or substitute the default. */
 function str(v: unknown, fallback = ''): string {
   return typeof v === 'string' && v.length > 0 ? v : fallback
 }
 
+/** Same for numbers, rejecting `NaN` — which would otherwise flow into a size limit. */
 function num(v: unknown, fallback: number): number {
   return typeof v === 'number' && !isNaN(v) ? v : fallback
 }
 
+/** A directory listing row, narrowed here so the handlers don't depend on the IPC type. */
 interface DirEntry {
   name: string
   isDirectory: boolean
   path: string
 }
 
+/**
+ * One tool's implementation.
+ *
+ * Receives the registry so a handler can reach other tools (`help`) without importing it,
+ * and `opts.approved` so a tool can relax a check only *after* the user consented — see
+ * the `shell` handler, which is the single place `bypassDangerCheck` is ever set.
+ */
 type ToolHandler = (
   params: Record<string, unknown>,
   opts: { approved?: boolean },
   registry: ToolRegistry,
 ) => Promise<unknown>
 
+/**
+ * Implementations for every built-in tool.
+ *
+ * Two conventions worth knowing:
+ *  - mutating file operations re-validate the path here even though the main process
+ *    checks again — the renderer copy exists so the model gets a readable refusal instead
+ *    of an IPC error, not because the main-process check is optional;
+ *  - numeric system levels are clamped, so a model that asks for 5000% volume cannot make
+ *    the OS call do something unexpected.
+ */
 const handlers: Record<string, ToolHandler> = {
   shell: async (params, opts) => {
     const cmd = str(params.command)
@@ -451,18 +494,34 @@ const handlers: Record<string, ToolHandler> = {
 const TOOL_HANDLERS = handlers as Record<BuiltinToolId, ToolHandler>
 
 // Tool execution using existing Kora IPC handlers via window.kora
+/**
+ * The registry: metadata lookup, MCP discovery, and the single execution entry point.
+ *
+ * The renderer can hold no privileges of its own — every handler goes out through
+ * `window.kora.*`, where the main process re-checks. That is the whole trust model.
+ */
 export class ToolRegistry {
+  /** In-flight `refreshMcpTools`, so N concurrent callers share one IPC round-trip. */
   private mcpRefreshInflight: Promise<void> | null = null
   private cachedTools: MCPToolWithServer[] = []
 
+  /** Look up one tool's metadata, built-in or MCP. */
   getMetadata(tool: string): ToolMetadata | undefined {
     return BUILTIN_TOOL_METADATA[tool as BuiltinToolId] ?? MCP_TOOL_METADATA.get(tool)
   }
 
+  /** Every known tool, for rendering in the system prompt and the `help` tool. */
   listMetadata(): ToolMetadata[] {
     return [...Object.values(BUILTIN_TOOL_METADATA), ...MCP_TOOL_METADATA.values()]
   }
 
+  /**
+   * Re-read the tool list from the MCP manager and rebuild the metadata map.
+   *
+   * De-duplicated through `mcpRefreshInflight`: a cycle that asks for tools twice in
+   * parallel (prompt build + a call) must not spawn two `mcp:listTools` round-trips, and
+   * two concurrent rebuilds would race on the shared Map.
+   */
   async refreshMcpTools(): Promise<MCPToolWithServer[]> {
     if (this.mcpRefreshInflight) {
       await this.mcpRefreshInflight
@@ -481,6 +540,17 @@ export class ToolRegistry {
     return this.cachedTools
   }
 
+  /**
+   * Run a tool. This is the only path into every handler.
+   *
+   * A dangerous tool called without `approved` does not run and does not throw: it
+   * returns `pending_confirmation`, which the orchestrator turns into a prompt. Throwing
+   * would abort the cycle before the user gets to decide.
+   *
+   * Handler exceptions are caught and returned as `{success: false, error}` so one broken
+   * tool cannot take down the loop, and the message is length-bounded by `boundToolError`
+   * to keep a stack trace from eating the context window.
+   */
   async execute(
     tool: ToolId,
     parameters: Record<string, unknown>,
@@ -509,6 +579,14 @@ export class ToolRegistry {
     }
   }
 
+  /**
+   * Dispatch to an MCP server instead of a local handler.
+   *
+   * An id we have never seen gets exactly one lazy refresh, then is refused if it is
+   * still unknown: the model can hallucinate a tool name, and calling an arbitrary name
+   * out to a server is not something to do on the strength of a string. MCP tools also
+   * honour `requiresConfirmation`, but only because the server advertised it.
+   */
   private async executeMcp(
     tool: `mcp__${string}__${string}`,
     parameters: Record<string, unknown>,
@@ -535,4 +613,5 @@ export class ToolRegistry {
   }
 }
 
+/** The shared registry the orchestrator uses; a second instance would duplicate MCP state. */
 export const agentRegistry = new ToolRegistry()

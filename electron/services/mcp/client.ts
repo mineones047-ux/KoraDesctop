@@ -60,14 +60,17 @@ export class MCPClient {
     }
   }
 
+  /** Is the child process alive *and* past the handshake? Both, or the answer is no. */
   isRunning(): boolean {
     return this.process !== null && this.initialized
   }
 
+  /** What the server reported about itself during `initialize`, or `null` before that. */
   getServerInfo(): MCPInitializeResult | null {
     return this.serverInfo
   }
 
+  /** Subscribe to server notifications (e.g. `tools/list_changed`); returns an unsubscribe. */
   onNotification(handler: NotificationHandler): () => void {
     this.notificationHandlers.push(handler)
     return () => {
@@ -75,6 +78,7 @@ export class MCPClient {
     }
   }
 
+  /** Subscribe to child-process exit; returns an unsubscribe. */
   onExit(handler: (code: number | null) => void): () => void {
     this.exitListeners.push(handler)
     return () => {
@@ -82,6 +86,14 @@ export class MCPClient {
     }
   }
 
+  /**
+   * Spawn the server and complete the MCP handshake.
+   *
+   * The order is the protocol's: spawn → `initialize` → the `initialized`
+   * notification. Talking before that notification is the one thing a server is allowed to
+   * reject, so it is not optional. `startupTimeoutMs` bounds the whole sequence, because
+   * a server that never answers would otherwise hang the app on launch.
+   */
   async start(): Promise<MCPInitializeResult> {
     if (this.process) {
       throw new Error(`MCP server "${this.name}" is already running`)
@@ -144,6 +156,13 @@ export class MCPClient {
     }
   }
 
+  /**
+   * Stop the server, escalating to a tree kill after 2 s.
+   *
+   * `SIGTERM` first so a well-behaved server can clean up; the escalation exists because
+   * the direct child is often a launcher (`cmd`, `npx`) that ignores it. Pending requests
+   * are failed up front so no caller is left waiting on a connection that is going away.
+   */
   async stop(): Promise<void> {
     const child = this.process
     this.process = null
@@ -193,12 +212,14 @@ export class MCPClient {
     }
   }
 
+  /** Every tool the server exposes. */
   async listTools(): Promise<MCPListToolsResult> {
     if (!this.initialized) throw new Error(`MCP "${this.name}" not initialized`)
     const result = await this.request<MCPListToolsResult>('tools/list', {})
     return result
   }
 
+  /** Invoke a tool. The server's `isError` is surfaced as a thrown error by the manager. */
   async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallToolResult> {
     if (!this.initialized) throw new Error(`MCP "${this.name}" not initialized`)
     if (!name || typeof name !== 'string') throw new Error('Tool name must be a non-empty string')
@@ -209,6 +230,7 @@ export class MCPClient {
     return result
   }
 
+  /** The `initialize` round trip. */
   private async initialize(): Promise<MCPInitializeResult> {
     const initPromise = this.request<MCPInitializeResult>('initialize', {
       protocolVersion: MCP_PROTOCOL_VERSION,
@@ -231,6 +253,7 @@ export class MCPClient {
     }
   }
 
+  /** The `notifications/initialized` message the protocol requires after `initialize`. */
   private async notifyInitialized(): Promise<void> {
     await this.notify('notifications/initialized', {})
   }
@@ -268,12 +291,19 @@ export class MCPClient {
     })
   }
 
+  /** Fire-and-forget notification: no id, no response, no pending entry. */
   private async notify(method: string, params?: Record<string, unknown>): Promise<void> {
     if (!this.process) return
     const note: MCPNotification = { jsonrpc: '2.0', method, params }
     this.process.stdin.write(JSON.stringify(note) + '\n', 'utf-8')
   }
 
+  /**
+   * Feed raw stdout into the line splitter.
+   *
+   * The buffer is kept across chunks because the transport splits anywhere — a JSON
+   * message routinely arrives in pieces, and a partial line must not be parsed.
+   */
   private handleData(chunk: string): void {
     this.buffer += chunk
     if (this.buffer.length > 4 * 1024 * 1024) {
@@ -289,6 +319,7 @@ export class MCPClient {
     }
   }
 
+  /** Route one complete line: a response (has an id), a notification, or a parse error. */
   private handleLine(line: string): void {
     let msg: MCPResponse
     try {
@@ -323,6 +354,12 @@ export class MCPClient {
     }
   }
 
+  /**
+   * Reject every in-flight request.
+   *
+   * Called when the child exits or stops: without it, each pending promise would hang
+   * until its own timeout, and the agent would appear to freeze for 30 s.
+   */
   private failAllPending(err: Error): void {
     this.pending.forEach((p) => {
       clearTimeout(p.timer)
@@ -331,6 +368,7 @@ export class MCPClient {
     this.pending.clear()
   }
 
+  /** Recent stderr, request counters and uptime — what the diagnostics panel shows. */
   getDiagnostics() {
     return {
       name: this.name,
@@ -340,6 +378,7 @@ export class MCPClient {
     }
   }
 
+  /** A fresh server id, derived from the package name so it stays stable across restarts. */
   static generateServerId(): string {
     return `srv_${randomUUID().slice(0, 8)}`
   }

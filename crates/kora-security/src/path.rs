@@ -10,9 +10,10 @@
 //!   * the environment inputs of the write blocklist are explicit ([`PlatformEnv`]) so the
 //!     Windows list can be tested on any host and vice versa.
 //!
-//! Deliberately NOT ported here: `resolveSafePath()` from `electron/ipc/filesystem.ts` needs
+//! **Not** ported here: `resolveSafePath()` from `electron/ipc/filesystem.ts` needs
 //! Node's `path.resolve` semantics (CWD- and platform-dependent) and belongs to the `fs:*`
-//! channel port; only its constant [`MAX_PATH_LENGTH`] is defined here.
+//! channel port — it now lives in [`crate::guard`], together with the symlink-resolving
+//! `assertSafeWriteTarget()`. Only the constant [`MAX_PATH_LENGTH`] is defined here.
 
 use std::fmt;
 
@@ -83,8 +84,8 @@ impl PlatformEnv {
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_default();
         let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-        let app_data = std::env::var("APPDATA")
-            .unwrap_or_else(|_| format!("{home}\\AppData\\Roaming"));
+        let app_data =
+            std::env::var("APPDATA").unwrap_or_else(|_| format!("{home}\\AppData\\Roaming"));
         PlatformEnv {
             platform: Platform::current(),
             sys_root,
@@ -290,7 +291,14 @@ pub fn blocked_write_paths(env: &PlatformEnv) -> Vec<String> {
             join_win(&[&env.home, ".gnupg"]),
         ],
         Platform::Other => [
-            "/etc", "/boot", "/sys", "/proc", "/dev", "/sbin", "/usr/sbin", "/usr/bin",
+            "/etc",
+            "/boot",
+            "/sys",
+            "/proc",
+            "/dev",
+            "/sbin",
+            "/usr/sbin",
+            "/usr/bin",
         ]
         .into_iter()
         .map(str::to_string)
@@ -299,10 +307,7 @@ pub fn blocked_write_paths(env: &PlatformEnv) -> Vec<String> {
 }
 
 /// TS `assertNotBlockedWrite` — `Ok(())` when the resolved path is outside the blocklist.
-pub fn assert_not_blocked_write(
-    resolved_path: &str,
-    blocked: &[String],
-) -> Result<(), PathError> {
+pub fn assert_not_blocked_write(resolved_path: &str, blocked: &[String]) -> Result<(), PathError> {
     let normalized = resolved_path.to_lowercase().replace('\\', "/");
 
     for entry in blocked {
@@ -326,5 +331,3 @@ fn join_win(parts: &[&str]) -> String {
         .collect::<Vec<_>>()
         .join("\\")
 }
-
-

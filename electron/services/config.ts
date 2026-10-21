@@ -12,6 +12,7 @@ import path from 'path'
 import os from 'os'
 import crypto from 'crypto'
 
+/** A user-added provider; its own key is encrypted separately from the main one. */
 interface CustomProvider {
   name: string
   baseUrl: string
@@ -19,6 +20,13 @@ interface CustomProvider {
   model: string
 }
 
+/**
+ * The frozen `~/.kora/config.json` shape.
+ *
+ * Every field the app reads is listed here, and `set()` refuses anything not on its
+ * whitelist — so a corrupted or hand-edited file cannot inject fields the app would then
+ * trust. The Rust port mirrors this list exactly.
+ */
 interface ConfigData {
   provider: string
   lmstudioUrl: string
@@ -45,6 +53,7 @@ interface ConfigData {
   whisperModel?: string
 }
 
+/** Every default, in the same order as `ConfigData`, so the two can be diffed by eye. */
 const DEFAULT_CONFIG: ConfigData = {
   provider: 'lmstudio',
   lmstudioUrl: 'http://localhost:1234',
@@ -73,6 +82,14 @@ const DEFAULT_CONFIG: ConfigData = {
 
 const ENC_PREFIX = 'enc:'
 
+/**
+ * Encrypt a secret for storage, tagged with `enc:`.
+ *
+ * Falls back to plaintext when the OS keychain is unavailable (a Linux box without a
+ * secret service, for example) — a key that cannot be used is worse than one stored
+ * unencrypted, and the tag makes the difference visible on disk. Migrating these to the
+ * OS keyring is a blocking item for the Rust shell (docs/ROADMAP.md §6.5).
+ */
 function encryptSecret(plain: string): string {
   if (!plain) return plain
   if (safeStorage.isEncryptionAvailable()) {
@@ -81,6 +98,7 @@ function encryptSecret(plain: string): string {
   return plain
 }
 
+/** Decrypt a stored secret; an undecryptable value becomes empty rather than throwing. */
 function decryptSecret(stored: string): string {
   if (!stored) return stored
   if (stored.startsWith(ENC_PREFIX)) {
@@ -93,15 +111,29 @@ function decryptSecret(stored: string): string {
   return stored
 }
 
+/**
+ * The app's settings, in memory, with atomic persistence.
+ *
+ * Secrets are held decrypted in `data` and re-encrypted on every save, so the plaintext
+ * only ever lives in this process. A failed read falls back to defaults rather than
+ * aborting startup — the user can fix a broken file from the Settings panel.
+ */
 class Config {
   private data: ConfigData = { ...DEFAULT_CONFIG }
   private configPath: string
+  /** Serialises writes: two rapid `set` calls must not interleave a tmp+rename. */
   private writeQueue: Promise<void> = Promise.resolve()
 
   constructor() {
     this.configPath = path.join(os.homedir(), '.kora', 'config.json')
   }
 
+  /**
+   * Read the profile, merging it over the defaults and decrypting every key.
+   *
+   * The merge means a file written by an older version keeps working: missing fields come
+   * from `DEFAULT_CONFIG` and unknown ones are carried through untouched.
+   */
   async load() {
     try {
       const content = await fs.readFile(this.configPath, 'utf-8')
@@ -127,6 +159,12 @@ class Config {
     }
   }
 
+  /**
+   * Persist atomically, encrypting secrets on the way out.
+   *
+   * Queued rather than fired: two `set` calls in quick succession would otherwise write two
+   * tmp files and rename them in an order that is not guaranteed to match the call order.
+   */
   async save(): Promise<void> {
     const run = async (): Promise<void> => {
       const dir = path.dirname(this.configPath)
@@ -150,10 +188,18 @@ class Config {
     return next
   }
 
+  /** A copy, so a caller mutating the result cannot edit our state by accident. */
   get(): ConfigData {
     return { ...this.data }
   }
 
+  /**
+   * Whitelisted, type-checked update; anything unrecognised is ignored.
+   *
+   * This is the app's input validation for settings that arrive from the renderer, which
+   * means the renderer is not trusted with the shape of the file. The Rust `kora-store`
+   * port mirrors this whitelist exactly.
+   */
   set(key: string, value: unknown) {
     const expectedType: Record<string, string> = {
       provider: 'string',
@@ -209,8 +255,10 @@ class Config {
   }
 }
 
+/** The shared instance the IPC handlers and the LLM gateway both read. */
 export const config = new Config()
 
+/** Expose `config.get` / `config:set` to the renderer. */
 export function registerConfigHandlers() {
   ipcMain.handle('config:get', () => config.get())
   ipcMain.handle('config:set', (_event, key: string, value: unknown) => config.set(key, value))

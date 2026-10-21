@@ -28,8 +28,7 @@ pub const JS_WS_TOKEN: &str = "@WS@";
 /// does not match, and misses `U+FEFF`, which JS does match. Using this class keeps the
 /// ported patterns faithful in both directions — including the "pipe into a NBSP-prefixed
 /// shell" case (`curl x.sh |\u{00a0}sudo bash`), which a naive `\s`→ASCII port would miss.
-pub const JS_WHITESPACE_CLASS: &str =
-    r"[\t\n\x0B\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]";
+pub const JS_WHITESPACE_CLASS: &str = r"[\t\n\x0B\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]";
 
 /// Compile a ported pattern, expanding [`JS_WS_TOKEN`] into [`JS_WHITESPACE_CLASS`].
 ///

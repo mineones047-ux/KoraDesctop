@@ -74,9 +74,11 @@ fn handles_path_traversal_attempts() {
 fn allows_paths_within_allowed_directories() {
     let allowed = vec!["C:\\Users\\test\\projects".to_string()];
     assert!(validate_path_read("C:\\Users\\test\\projects\\file.txt", Some(&allowed)).is_ok());
-    assert!(
-        validate_path_read("C:\\Users\\test\\projects\\subdir\\file.txt", Some(&allowed)).is_ok()
-    );
+    assert!(validate_path_read(
+        "C:\\Users\\test\\projects\\subdir\\file.txt",
+        Some(&allowed)
+    )
+    .is_ok());
 }
 
 #[test]
@@ -90,7 +92,9 @@ fn rejects_paths_outside_allowed_directories() {
 fn rejects_empty_paths_in_read_validation() {
     let allowed = vec!["C:\\Users".to_string()];
     assert_eq!(
-        validate_path_read("", Some(&allowed)).unwrap_err().to_string(),
+        validate_path_read("", Some(&allowed))
+            .unwrap_err()
+            .to_string(),
         "Path is empty"
     );
 }

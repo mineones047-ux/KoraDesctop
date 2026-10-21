@@ -29,6 +29,7 @@ import {
 } from './guards'
 import { buildSystemPrompt, buildFinalAnswerPrompt, buildMemorySummaryPrompt } from './prompts'
 import { fitToTokenBudget } from './token-budget'
+import { wrapToolOutput } from './tool-output'
 import { CONFIG } from '../config'
 
 export interface AgentLLMOptions {
@@ -64,6 +65,14 @@ interface CycleContext {
 
 const MAX_AGENT_STEPS = CONFIG.agent.MAX_STEPS
 
+/**
+ * Render a tool result into something that fits the transcript and the context budget.
+ *
+ * Truncation is essential, not cosmetic: one `grep` over a large repo can return megabytes,
+ * and a single such result would evict the whole conversation from the window. The
+ * `try/catch` covers results holding a BigInt or a cycle, which `JSON.stringify` refuses —
+ * a tool result is arbitrary, so that case is real.
+ */
 function summarizeResult(result: unknown): string {
   try {
     const s = JSON.stringify(result)
@@ -73,6 +82,15 @@ function summarizeResult(result: unknown): string {
   }
 }
 
+/**
+ * Pull one JSON decision out of the model's reply, or `null` if there is no usable one.
+ *
+ * Extraction is forgiving on purpose — models wrap JSON in ``` fences, prepend "Sure!", or
+ * trail commentary, so we slice from the first `{` to the last `}` instead of demanding the
+ * whole message parse. The `action` itself is *not* forgiven: an unrecognised value returns
+ * `null` so the retry machinery sends a correction prompt, rather than being coerced into a
+ * call with missing arguments.
+ */
 export function parseAgentResponse(text: string): AgentDecision | null {
   let cleaned = text.trim()
   const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/)
@@ -102,10 +120,29 @@ export function parseAgentResponse(text: string): AgentDecision | null {
 const FS_QUERY_REGEX =
   /(?:файл|файлы|папк|директор|каталог|прочитай|прочитат|посмотр|что (?:в|находится|лежит|есть)|содержим|список|какие|list|dir|folder|director|file|files|ls|contents|read|show|open|exists|find|grep)/i
 
+/**
+ * The same intent, in Chinese.
+ *
+ * Separated rather than appended because `\b` is meaningless here (see `intent.ts`), and
+ * because mixing two scripts into one alternation makes the pattern unreadable. This one
+ * is not cosmetic: it drives the **grounding guard**, which forces a real directory
+ * listing before the model is allowed to answer. Without it, a Chinese user asking
+ * "我桌面上有什么" could get an invented file listing.
+ */
+const FS_QUERY_REGEX_ZH = /文件|文件夹|目录|桌面上|里面有什么|有什么|有哪些|列出|读取|查看|笔记/
+
+/**
+ * Is this request about looking at files?
+ *
+ * Drives the grounding guard, so it is deliberately broad: a false positive costs one
+ * extra `dir` call, a false negative lets the model invent a directory listing. Asymmetric
+ * on purpose.
+ */
 function isFileSystemQuery(query: string): boolean {
-  return FS_QUERY_REGEX.test(query)
+  return FS_QUERY_REGEX.test(query) || FS_QUERY_REGEX_ZH.test(query)
 }
 
+/** Pull a filesystem path out of the user's own words, Windows form first. */
 function extractPath(query: string): string | null {
   const win = query.match(/[A-Za-z]:\\(?:[^\\\s"']+\\)*[^\\\s"']*/)
   if (win) return win[0]
@@ -113,12 +150,27 @@ function extractPath(query: string): string | null {
   return nix ? nix[0] : null
 }
 
+/**
+ * Prompts appended to the conversation on successive format failures.
+ *
+ * Indexed by attempt: the first retry simply re-asks, the second states the schema, the
+ * third is a last warning. The escalation matters — a model that produced garbage once will
+ * usually produce the same garbage unless told precisely what is wrong.
+ */
 const RETRY_CORRECTIONS = [
   '',
   'Your previous response was not a valid JSON decision. Reply with ONLY a JSON object like {"thought":"...","action":"call_tool","tool":"dir","parameters":{"path":"C:\\\\Users\\\\name"}}. No markdown, no code fences, no explanations.',
   'This is your last attempt. Reply with ONLY a valid JSON object. "action" must be "call_tool" (with "tool" and "parameters") or "finish" (with "answer").',
 ]
 
+/**
+ * The ReAct agent, as a hook.
+ *
+ * Note the deliberate split between refs and state: everything the loop reads *while it is
+ * mid-await* (running, aborted, step count, the pending tool, the cycle context) lives in a
+ * ref, because a state update would not be visible to the continuation of the function that
+ * is already running. State is only for what the UI renders.
+ */
 export function useReActAgent() {
   const { state, think, act, observe, requestConfirmation, approveConfirmation, denyConfirmation, abort, reset } = useAgent()
   const { addEntry, getFullHistory } = useMemory()
@@ -142,11 +194,14 @@ export function useReActAgent() {
   /** The exact dropped text the current summary covers (avoid re-summarising). */
   const summarizedForRef = useRef('')
 
+  /** Flip both halves of "is a cycle in flight" — the ref for the loop, the state for the UI. */
   const stopRunning = useCallback(() => {
     runningRef.current = false
     setIsRunning(false)
   }, [])
 
+  /** End the cycle with a result, recording the final answer in memory so the next turn can
+   *  see how this conversation concluded. */
   const finishCycle = useCallback((res: ReActResult) => {
     stopRunning()
     setResult(res)
@@ -158,12 +213,26 @@ export function useReActAgent() {
   const observeStep = useCallback(async (toolResult: unknown, thought: string) => {
     setCurrentPlan((prev) => [...prev, { action: 'observe', thought, result: toolResult }])
     observe(toolResult, thought)
-    addEntry({ role: 'assistant', content: `Observation (${thought}): ${summarizeResult(toolResult)}` })
+    // <tool_output> markers + sanitisation (security review 2026-09-25):
+    // tool/file/web output is data, never instructions — the system prompt
+    // tells the model to treat the marked region accordingly.
+    addEntry({ role: 'assistant', content: `Observation (${thought}): ${wrapToolOutput(summarizeResult(toolResult))}` })
   }, [observe, addEntry])
 
   // LLM calls are streamed so the user sees the agent "thinking" live instead
   // of a frozen window while a local model works. We buffer the full text for
   // the existing retry/guard logic while mirroring it into liveTranscript.
+/**
+   * One LLM call per agent step, streamed so the user watches the decision being written.
+   *
+   * Wrapped in a promise because `chatStream` is callback-based while the surrounding retry
+   * logic reads as straight-line awaits. `settle` guarantees the promise resolves exactly
+   * once — the stream fires onChunk, onError *and* onComplete, and without it a late error
+   * would try to reject an already-settled promise.
+   *
+   * The live transcript is coalesced to one repaint per `RENDER_INTERVAL_MS`; a local model
+   * emits tokens faster than React can usefully re-render.
+   */
   const streamDecisionText = useCallback(
     (messages: { role: string; content: string }[], llmOptions: AgentLLMOptions): Promise<string> => {
       return new Promise((resolve, reject) => {
@@ -177,6 +246,7 @@ export function useReActAgent() {
         let unsubscribe = () => {}
         let transcriptTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** Cancel any pending transcript repaint, so a stale timer cannot write after teardown. */
         const clearTranscriptTimer = () => {
           if (transcriptTimer !== null) {
             clearTimeout(transcriptTimer)
@@ -186,6 +256,7 @@ export function useReActAgent() {
 
         // Live "thinking" text mirrors the stream, but coalesced so the modal
         // repaints at most once per interval instead of on every token.
+        /** Request a transcript repaint, but not more than one per render interval. */
         const scheduleTranscript = () => {
           if (transcriptTimer !== null) return
           transcriptTimer = setTimeout(() => {
@@ -194,6 +265,7 @@ export function useReActAgent() {
           }, CONFIG.stream.RENDER_INTERVAL_MS)
         }
 
+        /** Resolve or reject the promise at most once, whichever fires first. */
         const settle = (fn: () => void) => {
           if (settled) return
           settled = true
@@ -223,6 +295,17 @@ export function useReActAgent() {
     [],
   )
 
+  /**
+   * One turn of the loop: ask the model what to do, then do it.
+   *
+   * Recursive rather than `while` because every stage is genuinely asynchronous and each
+   * branch is a different continuation; the guards that make a loop dangerous (step cap,
+   * repetition detection) live in the branches that recurse, not in a condition at the top.
+   *
+   * It checks for a stop *after* every await, not just at entry — a local model can take
+   * seconds per call, and a Stop pressed during that window must be honoured before the
+   * tool runs, or the user's "cancel" arrives after their file was already deleted.
+   */
   const runStep = useCallback(async (): Promise<void> => {
     const ctx = cycleRef.current
     if (!ctx || abortRef.current || !runningRef.current) return
@@ -406,6 +489,10 @@ export function useReActAgent() {
         loopGuardRef.current.record('dir', { path: dirPath }, toolResult)
         toolsUsedRef.current += 1
         stepRef.current += 1
+        // Self-recursion: the continuation only runs after this `useCallback`
+        // closure resolves, so there is no read of a not-yet-declared binding at
+        // runtime — the compiler-style rule cannot see that.
+        // eslint-disable-next-line react-hooks/immutability
         await runStep()
         return
       }
@@ -477,6 +564,13 @@ export function useReActAgent() {
     await runStep()
   }, [think, act, observe, observeStep, finishCycle, requestConfirmation, getFullHistory, addEntry, streamDecisionText])
 
+  /**
+   * Continue a cycle that was parked waiting for the user.
+   *
+   * A refusal is fed back to the model as a tool result rather than ending the cycle: the
+   * agent should be able to say "okay, what would you like instead" rather than going
+   * silent, and the loop guard will notice if it retries the same refused call.
+   */
   const resumeAfterConfirmation = useCallback(async (approved: boolean): Promise<void> => {
     const pending = pendingToolRef.current
     const ctx = cycleRef.current
@@ -503,6 +597,17 @@ export function useReActAgent() {
     await runStep()
   }, [approveConfirmation, denyConfirmation, observeStep, runStep])
 
+  /**
+   * Begin a new agent cycle for `query`.
+   *
+   * Every per-cycle counter is reset here rather than at the top of `runStep`, because a
+   * cycle can be suspended (waiting for confirmation) and resumed; resetting mid-cycle
+   * would hand the model a fresh step budget each time the user took a second to decide.
+   *
+   * MCP tools are refreshed before the first call so the model is told about them in the
+   * system prompt; a failure here is logged and ignored, since a missing MCP server must
+   * not stop the built-in tools from working.
+   */
   const startCycle = useCallback(async (query: string, llmOptions: AgentLLMOptions, decisionLlmOptions?: AgentLLMOptions | null): Promise<void> => {
     abortRef.current = false
     setResult(null)
@@ -530,6 +635,8 @@ export function useReActAgent() {
     await runStep()
   }, [reset, addEntry, runStep])
 
+  /** User pressed Stop: flag the abort so in-flight awaits unwind, and drop any pending
+   *  confirmation so a late click on "approve" cannot resume a dead cycle. */
   const stop = useCallback(() => {
     abortRef.current = true
     pendingToolRef.current = null

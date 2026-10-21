@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
-import { isBlockedHost, isAllowedProtocol } from '../lib/web-security'
+import { guardedFetch } from '../lib/ssrf-guard'
+import dns from 'dns/promises'
 
 interface SearchResult {
   title: string
@@ -11,6 +12,14 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const MAX_FETCH_BYTES = 5 * 1024 * 1024
 
+/**
+ * Read a response body, stopping at `MAX_FETCH_BYTES`.
+ *
+ * The byte count is enforced while streaming rather than from `Content-Length`, because
+ * that header is attacker-controlled: it can lie, or be absent on a chunked response. On
+ * overflow we return what we already have rather than erroring, so a large page still
+ * yields usable text.
+ */
 async function readBodyWithLimit(response: Response): Promise<string> {
   if (!response.body) return ''
   const reader = response.body.getReader()
@@ -29,6 +38,16 @@ async function readBodyWithLimit(response: Response): Promise<string> {
   return Buffer.concat(chunks).toString('utf-8')
 }
 
+/**
+ * Web access for the agent: keyword search and single-page fetch.
+ *
+ * `web:fetch` is the dangerous one — a URL chosen by the model is an SSRF vector into
+ * whatever the machine can reach, so it goes through `guardedFetch` rather than `fetch`.
+ * `web:search` only ever hits a hardcoded DuckDuckGo endpoint, so it needs no guard.
+ *
+ * Failures are returned as data (`{title: 'Search failed', ...}`) rather than thrown: the
+ * agent can report "the web was unreachable" far better than it can report an IPC error.
+ */
 export function registerWebHandlers() {
   ipcMain.handle('web:search', async (_event, query: string): Promise<SearchResult[]> => {
     try {
@@ -58,22 +77,18 @@ export function registerWebHandlers() {
   // Also fetch a single page to get readable content
   ipcMain.handle('web:fetch', async (_event, pageUrl: string): Promise<{ success: boolean; content?: string; error?: string }> => {
     try {
-      let parsed: URL
-      try {
-        parsed = new URL(pageUrl)
-      } catch {
-        return { success: false, error: 'Invalid URL' }
+      // SSRF-guarded fetch (security review 2026-09-25): every redirect hop is
+      // re-validated (protocol + host) and the hostname's DNS answers must all
+      // be public addresses before the request leaves the machine.
+      const lookupImpl = async (hostname: string): Promise<string[]> => {
+        const addrs = await dns.lookup(hostname, { all: true })
+        return addrs.map((a) => a.address)
       }
-      if (!isAllowedProtocol(parsed.protocol)) {
-        return { success: false, error: `Blocked protocol: ${parsed.protocol}` }
-      }
-      if (isBlockedHost(parsed.hostname)) {
-        return { success: false, error: 'Access to internal/private network addresses is blocked' }
-      }
-      const response = await fetch(pageUrl, {
-        headers: { 'User-Agent': USER_AGENT },
-        signal: AbortSignal.timeout(10000),
-      })
+      const { response } = await guardedFetch(
+        pageUrl,
+        { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(10000) },
+        { fetchImpl: fetch, lookupImpl },
+      )
       if (!response.ok) {
         return { success: false, error: `HTTP ${response.status}` }
       }
@@ -93,6 +108,14 @@ export function registerWebHandlers() {
   })
 }
 
+/**
+ * Pull titles/URLs/snippets out of DuckDuckGo's HTML endpoint.
+ *
+ * Regex rather than a DOM parser: this is the `html.duckduckgo.com` lite markup, the
+ * result cap is 8, and a parser dependency would outweigh the benefit. The fallback
+ * branch exists because DDG changes its class names without notice — when the strict
+ * pattern matches nothing we degrade to titles-only instead of returning nothing.
+ */
 function parseDuckDuckGoResults(html: string): SearchResult[] {
   const results: SearchResult[] = []
   let match: RegExpExecArray | null

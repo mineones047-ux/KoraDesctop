@@ -1,4 +1,4 @@
-﻿# Kora — Rust workspace (see docs/ROADMAP.md §5 for the target architecture).
+# Kora — Rust workspace (see docs/ROADMAP.md §5 for the target architecture).
 #
 # Transition strategy: the Electron/React app in src/ + electron/ stays alive until the
 # Tauri shell passes the parity checklist (docs/ROADMAP.md §6.9). These crates are the
@@ -7,9 +7,16 @@
 resolver = "2"
 members = [
   "crates/kora-security",
+  "crates/kora-sandbox",
   "crates/kora-store",
   "crates/kora-llm",
+  "crates/kora-skills",
   "crates/kora-mcp",
+  "crates/kora-rpc",
+  "crates/kora-core",
+  "crates/kora-methods",
+  "crates/kora-desktop",
+  "crates/kora-cli",
 ]
 
 [workspace.package]
@@ -28,9 +35,37 @@ once_cell = "1"
 thiserror = "1"
 tempfile = "3"
 rand = "0.8"
+async-trait = "0.1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "fs", "net"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+
+# ── Ecosystem crates adopted on 2026-09-29 (docs/FIXES.md) ──
+#
+# `rig-core` carries the provider layer + SSE + retry for 24 providers, so Kora stops
+# hand-rolling HTTP for every one of them. All its providers live behind `default`
+# (there are no per-provider features), so the dependency is the same size either way.
+# `rmcp` is the *official* Rust SDK for MCP, replacing the self-written JSON-RPC client.
+rig-core = { version = "0.42", default-features = false, features = [
+  "reqwest",
+  "derive",
+  "rustls",
+  "websocket-rustls",
+] }
+rig-derive = { version = "0.42", default-features = false }
+rmcp = { version = "3.5", default-features = false, features = [
+  "client",
+  "server",
+  "macros",
+  "transport-child-process",
+  "transport-io",
+  "reqwest",
+] }
+keyring = { version = "3", default-features = false, features = [
+  "windows-native",
+  "apple-native",
+  "sync-secret-service",
+] }
 
 [profile.release]
 lto = "thin"

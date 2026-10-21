@@ -76,6 +76,24 @@ export function isUnsafeRegex(pattern: string): boolean {
   return false
 }
 
+/** Escape regex metacharacters so a string matches literally. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Pattern builder for the fs:findFiles walk (security review 2026-09-25).
+ * The legacy code stripped glob characters and then compiled the REST AS A
+ * REGEX — so a crafted needle like "(a+)+$" ran catastrophic backtracking on
+ * every walked filename inside the main process (ReDoS). The needle is now a
+ * literal substring match; null means "nothing left to search for".
+ */
+export function buildFindFilesPattern(pattern: string): RegExp | null {
+  const cleaned = pattern.replace(/[\\/"<>|*?]/g, '').slice(0, 200)
+  if (!cleaned) return null
+  return new RegExp(escapeRegExp(cleaned), 'i')
+}
+
 /**
  * Simple glob matcher for the `include` filter of fs:grep.
  * Escapes regex metacharacters, then translates * and ? wildcards.

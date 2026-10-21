@@ -1,0 +1,22 @@
+[package]
+name = "kora-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "OS-level process containment for Kora: Windows Job Object process-tree kill/limits, enforcing the policy from kora-security::sandbox"
+
+[dependencies]
+kora-security = { path = "../kora-security" }
+
+# Windows-only. The module that uses it is cfg-gated, so other platforms link nothing.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", default-features = false, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

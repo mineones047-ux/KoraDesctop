@@ -4,14 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Kora LLM gateway: provider bodies/headers, error classification, retry policy and SSE streaming (Rust port of electron/services/api.ts)"
+description = "Kora LLM gateway: the frozen [kora:<reason>] error contract plus a rig-core backed provider/streaming layer"
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-once_cell.workspace = true
-rand.workspace = true
-futures-util.workspace = true
 tokio.workspace = true
+rand.workspace = true
+rig-core.workspace = true
 reqwest.workspace = true
+futures-util.workspace = true

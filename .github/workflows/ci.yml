@@ -18,6 +18,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Tests (vitest)
         run: npm test
 
@@ -35,3 +38,42 @@ jobs:
 
       - name: Build renderer
         run: npm run build
+        env:
+          VITE_CONFIG_NATIVE_IGNORE_WARNING: 'true'
+
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install
+        run: npm ci
+
+      # The workspace's platform-dependent code (Windows Job Object sandbox,
+      # junction/symlink path guards, blocklist paths) needs this matrix: the Linux
+      # job alone would never execute any of it.
+      - name: cargo test
+        run: cargo test --workspace
+
+      # No `-D warnings`: clippy has only ever run on a Windows checkout (the
+      # platform-dependent modules are cfg-gated either way), and unknown cfg-off
+      # warnings must not break the matrix on the first cross-platform run.
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets
+
+      - name: core-cli smoke test
+        shell: bash
+        run: |
+          node scripts/build-core-cli.cjs
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{"client":"ci","protocol":"kora-rpc/1","capabilities":["fs","shell","config","chats"]}}' '{"jsonrpc":"2.0","id":2,"method":"fs.homeDir","params":[]}' | node dist-electron/core-cli.mjs 2>/dev/null | grep -q '"coreVersion"' \
+            || { echo 'core-cli handshake failed'; exit 1; }

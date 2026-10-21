@@ -1,8 +1,14 @@
-const { MsEdgeTTS } = require('msedge-tts')
+import { MsEdgeTTS } from 'msedge-tts'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
 
+/**
+ * Text-to-speech via Microsoft's Edge read-aloud endpoint.
+ *
+ * This is the main-process side: it holds the network call, so the renderer never talks to
+ * the endpoint directly and no key ever reaches the browser context.
+ */
 export const VOICES = {
   'ru-RU-DmitryNeural': 'Дмитрий (русский, мужской)',
   'ru-RU-SvetlanaNeural': 'Светлана (русский, женский)',
@@ -16,6 +22,7 @@ export const VOICES = {
   'ja-JP-NanamiNeural': 'Nanami (日本語)',
 } as const
 
+/** A voice id from `VOICES`, so a bad id in config is a compile error. */
 export type VoiceId = keyof typeof VOICES
 
 const SYNTH_TIMEOUT_MS = 30_000
@@ -26,7 +33,12 @@ export class TTSService {
     const capped = text.length > 5000 ? text.slice(0, 5000) : text
     const tts = new MsEdgeTTS()
     try {
-      await tts.setMetadata(voice, 'audio-24khz-96kbitrate-mono-mp3')
+      // The package types the format as its own enum-ish union, not a string;
+      // the literal is the documented mp3 profile, so the cast narrows it back.
+      await tts.setMetadata(
+        voice,
+        'audio-24khz-96kbitrate-mono-mp3' as unknown as Parameters<typeof tts.setMetadata>[1],
+      )
 
       const tmpDir = path.join(os.tmpdir(), 'kora-tts-' + Date.now())
       fs.mkdirSync(tmpDir, { recursive: true })

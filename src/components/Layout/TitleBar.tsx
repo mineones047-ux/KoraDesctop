@@ -1,5 +1,13 @@
 ﻿import { useEffect, useState } from 'react'
 
+/**
+ * Custom window chrome: app identity on the left, minimise/maximise/close on the right.
+ *
+ * The `drag` / `no-drag` class pair is what makes this work in a frameless window — the
+ * bar is draggable, the buttons opt out. Maximised state comes from the shell and is
+ * tracked via a subscription, because double-clicking the bar or dragging to an edge can
+ * maximise the window without this component's click handler running.
+ */
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(window.kora.window.isMaximized())
 

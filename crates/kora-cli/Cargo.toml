@@ -1,0 +1,24 @@
+[package]
+name = "kora-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Headless Kora front: kora-rpc/1 server on stdio (serve) and the ReAct agent from the terminal (ask)"
+
+[[bin]]
+name = "kora-cli"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+kora-security = { path = "../kora-security" }
+kora-rpc = { path = "../kora-rpc" }
+kora-core = { path = "../kora-core" }
+kora-methods = { path = "../kora-methods" }
+
+[dev-dependencies]
+tempfile.workspace = true

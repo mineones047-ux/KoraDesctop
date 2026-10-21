@@ -11,6 +11,13 @@ import { APIClient } from '../services/api'
 import { LMStudioClient } from '../services/lmstudio'
 import { config } from '../services/config'
 
+/**
+ * The LLM IPC surface.
+ *
+ * Takes a window getter rather than importing a singleton so a test can hand it a fake,
+ * and so it is obvious that streaming needs the window — the token callbacks are pushed
+ * over a one-shot channel.
+ */
 export function registerAIHandlers(getWindow: () => BrowserWindow | null) {
   const win = (): BrowserWindow | null => getWindow()
   ipcMain.handle('ai:chat', async (_event, messages, options) => {

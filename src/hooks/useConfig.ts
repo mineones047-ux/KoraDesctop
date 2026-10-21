@@ -25,10 +25,9 @@ const DEFAULT_CONFIG: ConfigData = {
 export function useConfig() {
   const [config, setConfig] = useState<ConfigData>(DEFAULT_CONFIG)
 
-  useEffect(() => {
-    loadConfig()
-  }, [])
-
+  // Declared before the effect that calls it: a `const` referenced by an effect
+  // declared above it reads as TDZ and wandered past react-hooks/reference rules;
+  // keeping the definition first makes the call legal and obvious.
   const loadConfig = async () => {
     try {
       const saved = await window.kora.config.get()
@@ -47,6 +46,10 @@ export function useConfig() {
       console.error('Failed to load config:', error)
     }
   }
+
+  useEffect(() => {
+    void loadConfig()
+  }, [])
 
   const updateConfig = useCallback(
     async (key: keyof ConfigData, value: unknown) => {

@@ -5,6 +5,7 @@ import { useI18n } from '../../hooks/useI18n'
 import { MessageBubble } from './MessageBubble'
 import { InputBar } from './InputBar'
 
+/** The message list plus the input bar; the panel the rest of the app is arranged around. */
 interface ChatWindowProps {
   lang: Locale
   messages: Message[]
@@ -27,6 +28,14 @@ interface ChatWindowProps {
   onStopGenerate?: () => void
 }
 
+/**
+ * Scrolling message list with auto-scroll, wrapping the input bar.
+ *
+ * The auto-scroll is conditional, and that is the interesting part: the view follows the
+ * newest message only while the user is already at the bottom. Scrolling unconditionally
+ * would yank the view away from someone reading back through a long answer — and during
+ * streaming that would happen on every token.
+ */
 export function ChatWindow({
   lang, messages, onSend, isLoading, onSpeak, onStop, ttsPlayingId,
   onToggleTTS, isSpeaking, volume, isMuted, onToggleMute, onVolumeChange,

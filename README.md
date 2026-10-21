@@ -64,17 +64,27 @@ Windows alternative: `start.bat`.
 
 ```bash
 npm run build            # production renderer build (Vite -> dist/)
-npm run build:main       # main-process bundle (esbuild -> dist-electron/main.js + preload.js)
+npm run build:main       # main process + MCP servers + headless core (esbuild -> dist-electron/)
+npm run build:core-cli   # just the headless core (dist-electron/core-cli.mjs)
 npm run electron:build   # build + installer (electron-builder -> release/)
+```
+
+The headless core speaks `kora-rpc/1` over stdio, so the same method table the app uses
+can be driven from a script:
+
+```bash
+node dist-electron/core-cli.mjs
 ```
 
 ## Tests and checks
 
 ```bash
-npm test                                  # vitest run — 138 tests
+npm test                                  # vitest run — 241 tests
 npx tsc -p tsconfig.json --noEmit         # renderer typecheck
 npx tsc -p tsconfig.electron.json         # main-process typecheck (noEmit; bundling is npm run build:main)
 npx tsc -p tsconfig.node.json --noEmit    # build-config typecheck
+npx tsc -p tsconfig.core.json --noEmit    # headless core typecheck
+npx tsc -p tsconfig.shell.json --noEmit   # Tauri shell bridge typecheck
 ```
 
 ## Architecture

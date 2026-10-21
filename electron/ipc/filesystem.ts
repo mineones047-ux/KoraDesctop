@@ -2,8 +2,12 @@
  * Filesystem IPC handlers (fs:*).
  *
  * Every path goes through resolveSafePath() (quote stripping, `~` expansion,
- * path.resolve, length cap) and write/delete/rename/mkdir additionally through
- * assertNotBlockedWrite() (System32, Program Files, Startup, .ssh, ...).
+ * path.resolve, length cap) and every mutation additionally through
+ * assertSafeWriteTarget() — the blocklist check on the literal path *and* on its
+ * symlink-resolved form (System32, Program Files, Startup, .ssh, ...).
+ * Both live in electron/lib/path-guard.ts, the same module the RPC core
+ * (`core/methods.ts`) and the vitest suite import: one implementation, no copy
+ * that can drift away from the hardened one.
  * Writes are atomic (tmp + rename with a crypto suffix); grep is ReDoS-guarded
  * via electron/lib/regex-security.ts and skips node_modules/.git/hidden dirs.
  */
@@ -13,71 +17,7 @@ import path from 'path'
 import os from 'os'
 import crypto from 'crypto'
 import { isUnsafeRegex, matchGlob } from '../lib/regex-security'
-
-const stripQuotes = (p: string): string =>
-  p
-    .trim()
-    .replace(/^["']|["']$/g, '')
-    .replace(/["']/g, '')
-    .trim()
-
-const expand = (p: string): string => stripQuotes(p).replace(/^~/, os.homedir())
-
-// Sensitive system directories that should never be written to or deleted
-const BLOCKED_WRITE_PATHS: string[] = (() => {
-  if (process.platform === 'win32') {
-    const sysRoot = process.env.SystemRoot || 'C:\\Windows'
-    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-    const startup = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-    return [
-      path.win32.join(sysRoot, 'System32'),
-      path.win32.join(sysRoot, 'SysWOW64'),
-      path.win32.join(sysRoot, 'Boot'),
-      'C:\\',
-      'C:\\Program Files',
-      'C:\\Program Files (x86)',
-      'C:\\ProgramData',
-      startup,
-      path.join(os.homedir(), '.ssh'),
-      path.join(os.homedir(), '.gnupg'),
-    ]
-  }
-  return ['/etc', '/boot', '/sys', '/proc', '/dev', '/sbin', '/usr/sbin', '/usr/bin']
-})()
-
-// Maximum path length to prevent buffer overflow attacks
-const MAX_PATH_LENGTH = 4096
-
-/**
- * Resolve a user-provided path to a normalized absolute path,
- * blocking traversal attacks (e.g. ../../etc/passwd) and
- * writes to critical system directories.
- */
-function resolveSafePath(inputPath: string): string {
-  const expanded = expand(inputPath)
-  const resolved = path.resolve(expanded)
-
-  // Block paths exceeding OS limit
-  if (resolved.length > MAX_PATH_LENGTH) {
-    throw new Error(`Path too long (${resolved.length} chars, max ${MAX_PATH_LENGTH})`)
-  }
-
-  return resolved
-}
-
-function assertNotBlockedWrite(resolvedPath: string): void {
-  const normalized = resolvedPath.toLowerCase().replace(/\\/g, '/')
-  for (const blocked of BLOCKED_WRITE_PATHS) {
-    const blockedNormalized = blocked.toLowerCase().replace(/\\/g, '/')
-    // Check if the path IS the blocked dir or starts with it
-    if (normalized === blockedNormalized || normalized.startsWith(blockedNormalized + '/')) {
-      throw new Error(
-        `Access to system directory blocked: ${resolvedPath}. ` +
-        `This path is in a critical system area that cannot be modified.`
-      )
-    }
-  }
-}
+import { assertSafeWriteTarget, resolveSafePath } from '../lib/path-guard'
 
 async function readLimited(filePath: string, limit: number): Promise<string> {
   const s = await fs.stat(filePath)
@@ -134,7 +74,7 @@ export function registerFileHandlers() {
   ipcMain.handle('fs:writeFile', async (_event, filePath: string, content: string) => {
     try {
       const resolvedPath = resolveSafePath(filePath)
-      assertNotBlockedWrite(resolvedPath)
+      await assertSafeWriteTarget(resolvedPath)
       await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
       // Use crypto random suffix to prevent predictable temp filenames (race condition)
       const tmp = resolvedPath + '.kora-' + crypto.randomBytes(6).toString('hex')
@@ -155,7 +95,7 @@ export function registerFileHandlers() {
         return { success: false, error: 'newText must be a string up to 100000 chars' }
       }
       const resolvedPath = resolveSafePath(filePath)
-      assertNotBlockedWrite(resolvedPath)
+      await assertSafeWriteTarget(resolvedPath)
       const original = await fs.readFile(resolvedPath, 'utf-8')
       const occurrences = original.split(oldText).length - 1
       if (occurrences === 0) {
@@ -240,7 +180,7 @@ export function registerFileHandlers() {
   ipcMain.handle('fs:deleteFile', async (_event, filePath: string) => {
     try {
       const resolved = resolveSafePath(filePath)
-      assertNotBlockedWrite(resolved)
+      await assertSafeWriteTarget(resolved)
       const s = await fs.stat(resolved)
       if (s.isDirectory()) {
         await fs.rm(resolved, { recursive: true })
@@ -257,7 +197,11 @@ export function registerFileHandlers() {
     try {
       const resolvedOld = resolveSafePath(oldPath)
       const resolvedNew = resolveSafePath(newPath)
-      assertNotBlockedWrite(resolvedNew)
+      // Moving modifies the SOURCE location too — both sides are checked, exactly
+      // like the RPC core (`core/methods.ts`). Otherwise a rename could pull a file
+      // out of System32 instead of writing into it.
+      await assertSafeWriteTarget(resolvedOld)
+      await assertSafeWriteTarget(resolvedNew)
       await fs.mkdir(path.dirname(resolvedNew), { recursive: true })
       await fs.rename(resolvedOld, resolvedNew)
       return { success: true }
@@ -270,7 +214,7 @@ export function registerFileHandlers() {
     try {
       const resolvedOld = resolveSafePath(oldPath)
       const resolvedNew = resolveSafePath(newPath)
-      assertNotBlockedWrite(resolvedNew)
+      await assertSafeWriteTarget(resolvedNew)
       await fs.mkdir(path.dirname(resolvedNew), { recursive: true })
       const s = await fs.stat(resolvedOld)
       if (s.isDirectory()) {
@@ -287,7 +231,7 @@ export function registerFileHandlers() {
   ipcMain.handle('fs:mkdir', async (_event, dirPath: string) => {
     try {
       const resolved = resolveSafePath(dirPath)
-      assertNotBlockedWrite(resolved)
+      await assertSafeWriteTarget(resolved)
       await fs.mkdir(resolved, { recursive: true })
       return { success: true }
     } catch (error) {
@@ -335,8 +279,9 @@ export function registerFileHandlers() {
         return { success: false, error: 'Invalid pattern', results: [] }
       }
       
+      const escapeRegexMeta = (s: string): string => s.replace(/[.*+?^${}()|[\]\\\\]/g, '\\$&')
+      const patternRegex = new RegExp(escapeRegexMeta(safePattern), 'i')
       const results: string[] = []
-      const patternRegex = new RegExp(safePattern.replace(/\*/g, '.*').replace(/\?/g, '.'), 'i')
       
       async function walk(dir: string, depth: number) {
         if (results.length >= maxResults || depth > maxDepth) return

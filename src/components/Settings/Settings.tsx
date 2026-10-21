@@ -4,6 +4,7 @@ import { PROVIDERS, PROMPT_TEMPLATES, THEMES } from '../../types'
 import type { Locale } from '../../i18n'
 import { useI18n } from '../../hooks/useI18n'
 import { MCPSettings } from './MCPSettings'
+import { LocalModels } from './LocalModels'
 import { resolveProviderConfig } from '../../lib/resolve-provider'
 
 interface SettingsProps {
@@ -13,7 +14,20 @@ interface SettingsProps {
   onClose: () => void
 }
 
-type Tab = 'customize' | 'provider' | 'prompt' | 'voice' | 'mcp'
+type Tab = 'customize' | 'provider' | 'prompt' | 'voice' | 'mcp' | 'local'
+
+/**
+ * The sentence the "preview voice" button speaks, per language.
+ *
+ * Written in the target language on purpose: a Chinese voice reading an English sentence
+ * proves nothing about how it will sound reading the user's actual content. TTS itself
+ * needs no localisation — the Edge voices are picked by id elsewhere.
+ */
+const TTS_TEST_PHRASE: Record<string, string> = {
+  en: 'Hello! This is a Kora voice test message.',
+  ru: 'Привет! Это тестовое сообщение голоса Kora.',
+  zh: '你好！这是 Kora 的语音试听。',
+}
 
 const STYLE_PRESETS = [
   { label: 'concise', value: 0.2 },
@@ -71,8 +85,25 @@ const TABS: { id: Tab; icon: React.ReactNode }[] = [
       </svg>
     ),
   },
+  {
+    id: 'local',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v11" />
+        <path d="M7 10l5 5 5-5" />
+        <path d="M4 19h16" />
+      </svg>
+    ),
+  },
 ]
 
+/**
+ * The settings panel: provider, model, appearance, TTS, MCP and vault paths.
+ *
+ * Writes through `onUpdate` on every change rather than keeping a draft and a Save button,
+ * because these are preferences, not a transaction — but note that means a half-typed API
+ * key is persisted immediately.
+ */
 export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
   const t = useI18n(lang)
   const [tab, setTab] = useState<Tab>('customize')
@@ -151,7 +182,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
     previewAudioRef.current?.pause()
     setPreviewVoice(voice)
     try {
-      const result = await window.kora.tts.synthesize(lang === 'ru' ? 'Привет! Это тестовое сообщение голоса Kora.' : 'Hello! This is a Kora voice test message.', voice)
+      const result = await window.kora.tts.synthesize(TTS_TEST_PHRASE[config.language] ?? TTS_TEST_PHRASE.en, voice)
       if (!result.success || !result.audio) {
         setPreviewVoice(null)
         return
@@ -204,14 +235,13 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
   const currentStyle = STYLE_PRESETS.find((s) => Math.abs(s.value - config.temperature) < 0.05)?.label ?? null
 
   const inputCls =
-    'w-full bg-kora-card border border-kora-border rounded-xl px-3 py-2.5 text-sm text-kora-text placeholder-kora-muted/60 focus:outline-none focus:border-kora-accent transition-colors'
+    'w-full bg-kora-card border border-kora-border rounded-xl px-4 py-2.5 text-sm text-kora-text placeholder-kora-muted/60 focus:outline-none focus:border-kora-accent focus:ring-2 focus:ring-kora-accent/20 transition-all'
   const secondaryBtnCls =
-    'px-4 py-2.5 bg-kora-card border border-kora-border rounded-full text-sm font-medium text-kora-text hover:border-kora-accent hover:text-kora-text transition-all disabled:opacity-50 disabled:cursor-not-allowed'
+    'px-5 py-2.5 bg-kora-card border border-kora-border rounded-full text-sm font-medium text-kora-text hover:border-kora-accent hover:text-kora-text hover:bg-kora-card/80 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm'
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
-      <div
-        className="w-full max-w-2xl bg-kora-surface border border-kora-border rounded-3xl shadow-2xl animate-slide-up"
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>        <div
+        className="w-full max-w-3xl mx-4 bg-kora-surface border border-kora-border rounded-3xl shadow-2xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -232,15 +262,15 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
 
         {/* Tabs */}
         <div className="px-5 pt-4">
-          <div className="flex gap-1 bg-kora-card rounded-full p-1 overflow-x-auto">
+          <div className="flex gap-2 bg-kora-card rounded-full p-1 overflow-x-auto">
             {TABS.map((tabDef) => (
               <button
                 key={tabDef.id}
                 onClick={() => setTab(tabDef.id)}
-                className={`flex items-center justify-center gap-2 flex-1 min-w-fit px-4 py-2 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
                   tab === tabDef.id
-                    ? 'bg-kora-accent text-white shadow-lg shadow-kora-accent/25'
-                    : 'text-kora-muted hover:text-kora-text'
+                    ? 'bg-kora-accent-soft text-kora-text'
+                    : 'text-kora-muted hover:text-kora-text hover:bg-kora-border/30'
                 }`}
               >
                 {tabDef.icon}
@@ -251,24 +281,27 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
         </div>
 
         {/* Content */}
-        <div className="p-5 max-h-[62vh] overflow-y-auto">
+        <div className="p-6 max-h-[85vh] overflow-y-auto">
           {/* ============ CUSTOMIZE ============ */}
           {tab === 'customize' && (
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-kora-text mb-1">{t.settings.language}</label>
+                <label className="block text-base font-medium text-kora-text mb-2">{t.settings.language}</label>
                 <p className="text-xs text-kora-muted mb-3">{t.settings.languageDesc}</p>
-                <div className="flex gap-3">
-                  {([
-                    { id: 'en' as Locale, label: 'English', flag: '🇺🇸' },
-                    { id: 'ru' as Locale, label: 'Русский', flag: '🇷🇺' },
-                  ]).map((l) => (
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { id: 'en' as Locale, label: 'English', flag: '🇺🇸' },
+                      { id: 'ru' as Locale, label: 'Русский', flag: '🇷🇺' },
+                      { id: 'zh' as Locale, label: '简体中文', flag: '🇨🇳' },
+                    ] as { id: Locale; label: string; flag: string }[]
+                  ).map((l) => (
                     <button
                       key={l.id}
                       onClick={() => onUpdate('language', l.id)}
-                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl text-sm font-medium transition-all ${
+                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-medium transition-all min-w-[120px] ${
                         config.language === l.id
-                          ? 'bg-kora-accent/15 border border-kora-accent text-kora-text'
+                          ? 'bg-kora-accent-soft border border-kora-accent text-kora-text'
                           : 'bg-kora-card border border-kora-border text-kora-muted hover:text-kora-text hover:border-kora-border'
                       }`}
                     >
@@ -282,14 +315,14 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
               <div className="border-t border-kora-border pt-5">
                 <label className="block text-sm font-medium text-kora-text mb-1">{t.settings.theme}</label>
                 <p className="text-xs text-kora-muted mb-3">{t.settings.themeDesc}</p>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {THEMES.map((theme) => (
                     <button
                       key={theme.id}
                       onClick={() => onUpdate('theme', theme.id)}
                       className={`group text-left p-4 rounded-2xl border transition-all ${
                         config.theme === theme.id
-                          ? 'bg-kora-accent/10 border-kora-accent'
+                          ? 'bg-kora-accent-soft border-kora-accent'
                           : 'bg-kora-card border-kora-border hover:border-kora-border'
                       }`}
                     >
@@ -353,64 +386,62 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
           {/* ============ PROVIDER ============ */}
           {tab === 'provider' && (
             <div className="space-y-6">
-              <p className="text-xs text-kora-muted leading-relaxed">{t.settings.providerDesc}</p>
-
-              <div className="grid grid-cols-3 gap-2">
-                {PROVIDERS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      onUpdate('provider', p.id)
-                      onUpdate('apiBaseUrl', p.baseUrl)
-                      onUpdate('selectedModel', '')
-                    }}
-                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition-all ${
-                      config.provider === p.id
-                        ? 'bg-kora-accent/10 border-kora-accent'
-                        : 'bg-kora-card border-kora-border hover:border-kora-border'
-                    }`}
-                  >
-                    <span
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                      style={{ backgroundColor: p.badgeColor }}
+              <p className="text-xs text-kora-muted leading-relaxed">{t.settings.providerDesc}</p>              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {PROVIDERS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        onUpdate('provider', p.id)
+                        onUpdate('apiBaseUrl', p.baseUrl)
+                        onUpdate('selectedModel', '')
+                      }}
+                      className={`flex items-center gap-2.5 p-3.5 rounded-2xl border text-left transition-all ${
+                        config.provider === p.id
+                          ? 'bg-kora-accent/10 border-kora-accent'
+                          : 'bg-kora-card border-kora-border hover:border-kora-border'
+                      }`}
                     >
-                      {p.badge}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-xs font-medium text-kora-text truncate">{p.name}</span>
-                      <span className="block text-[10px] text-kora-muted">
-                        {p.local ? t.settings.local : t.settings.cloud}
+                      <span
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                        style={{ backgroundColor: p.badgeColor }}
+                      >
+                        {p.badge}
                       </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-kora-text truncate">{p.name}</span>
+                        <span className="block text-[11px] text-kora-muted">
+                          {p.local ? t.settings.local : t.settings.cloud}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
 
               <div className="border-t border-kora-border pt-5 space-y-4">
                 <label className="block text-sm font-medium text-kora-text">{t.settings.providerSetup}</label>
 
                 {(showUrl || config.provider === 'anthropic' || config.provider === 'openrouter') && (
-                  <div>
-                    <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.baseUrl}</label>
-                    <input
-                      type="text"
-                      value={config.provider === 'lmstudio' ? config.lmstudioUrl : config.provider === 'ollama' ? config.ollamaUrl : config.provider === 'llamacpp' ? (config.llamacppUrl ?? '') : config.apiBaseUrl}
-                      onChange={(e) => {
-                        if (config.provider === 'lmstudio') onUpdate('lmstudioUrl', e.target.value)
-                        else if (config.provider === 'ollama') onUpdate('ollamaUrl', e.target.value)
-                        else if (config.provider === 'llamacpp') onUpdate('llamacppUrl', e.target.value)
-                        else onUpdate('apiBaseUrl', e.target.value)
-                      }}
-                      className={inputCls}
-                      placeholder={activeProvider.baseUrl}
-                    />
-                    <p className="text-[10px] text-kora-muted mt-1">{t.settings.urlDesc}</p>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-kora-text mb-1.5">{t.settings.baseUrl}</label>
+                <input
+                  type="text"
+                  value={config.provider === 'lmstudio' ? config.lmstudioUrl : config.provider === 'ollama' ? config.ollamaUrl : config.provider === 'llamacpp' ? (config.llamacppUrl ?? '') : config.apiBaseUrl}
+                  onChange={(e) => {
+                    if (config.provider === 'lmstudio') onUpdate('lmstudioUrl', e.target.value)
+                    else if (config.provider === 'ollama') onUpdate('ollamaUrl', e.target.value)
+                    else if (config.provider === 'llamacpp') onUpdate('llamacppUrl', e.target.value)
+                    else onUpdate('apiBaseUrl', e.target.value)
+                  }}
+                  className={inputCls}
+                  placeholder={activeProvider.baseUrl}
+                />
+                <p className="text-xs text-kora-muted mt-1.5">{t.settings.urlDesc}</p>
+              </div>
                 )}
 
                 {!isLocal && (
                   <div>
-                    <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.apiKey}</label>
+                    <label className="block text-sm font-medium text-kora-text mb-1.5">{t.settings.apiKey}</label>
                     <input
                       type="password"
                       value={config.apiKey}
@@ -418,12 +449,12 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       className={inputCls}
                       placeholder={activeProvider.id === 'anthropic' ? 'sk-ant-...' : activeProvider.id === 'openrouter' ? 'sk-or-...' : 'sk-...'}
                     />
-                    <p className="text-[10px] text-kora-muted mt-1">{t.settings.apiKeyDesc}</p>
+                    <p className="text-xs text-kora-muted mt-1.5">{t.settings.apiKeyDesc}</p>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.model}</label>
+                  <label className="block text-sm font-medium text-kora-text mb-1.5">{t.settings.model}</label>
                   <div className="flex gap-2">
                     <select
                       value={config.selectedModel || config.apiModel}
@@ -431,7 +462,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                         onUpdate('apiModel', e.target.value)
                         onUpdate('selectedModel', e.target.value)
                       }}
-                      className={inputCls}
+                      className={`${inputCls} flex-1`}
                     >
                       {models.length === 0 ? (
                         <option value="">{t.settings.noModels}</option>
@@ -460,7 +491,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       placeholder={t.settings.modelPlaceholder}
                     />
                   )}
-                  <p className="text-[10px] text-kora-muted mt-1">{t.settings.modelDesc}</p>
+                  <p className="text-xs text-kora-muted mt-1.5">{t.settings.modelDesc}</p>
                 </div>
 
                 <div>
@@ -506,12 +537,12 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
               </div>
 
               <div className="border-t border-kora-border pt-5">
-                <label className="block text-sm font-medium text-kora-text mb-3">{t.settings.savedProviders}</label>
+                <label className="block text-base font-medium text-kora-text mb-3">{t.settings.savedProviders}</label>
                 <div className="space-y-3">
                   {config.customProviders.map((cp, index) => (
-                    <div key={index} className="bg-kora-card border border-kora-border rounded-2xl p-3.5 space-y-2.5">
+                    <div key={index} className="bg-kora-card border border-kora-border rounded-2xl p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-kora-text">{cp.name}</span>
+                        <span className="text-base font-medium text-kora-text">{cp.name}</span>
                         <button
                           onClick={() => removeCustomProvider(index)}
                           className="px-3 py-1.5 rounded-full text-xs bg-kora-error/10 text-kora-error hover:bg-kora-error/20 transition-colors"
@@ -523,21 +554,21 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                         type="text"
                         value={cp.baseUrl}
                         onChange={(e) => updateCustomProvider(index, 'baseUrl', e.target.value)}
-                        className={`${inputCls} !py-2 !text-xs`}
+                        className={`${inputCls} !py-2.5`}
                         placeholder={t.settings.baseUrl}
                       />
                       <input
                         type="password"
                         value={cp.apiKey}
                         onChange={(e) => updateCustomProvider(index, 'apiKey', e.target.value)}
-                        className={`${inputCls} !py-2 !text-xs`}
+                        className={`${inputCls} !py-2.5`}
                         placeholder={t.settings.apiKey}
                       />
                       <input
                         type="text"
                         value={cp.model}
                         onChange={(e) => updateCustomProvider(index, 'model', e.target.value)}
-                        className={`${inputCls} !py-2 !text-xs`}
+                        className={`${inputCls} !py-2.5`}
                         placeholder={t.settings.enterModel}
                       />
                     </div>
@@ -548,7 +579,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       value={customName}
                       onChange={(e) => setCustomName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && addCustomProvider()}
-                      className={inputCls}
+                      className={`${inputCls} flex-1`}
                       placeholder={t.settings.providerName}
                     />
                     <button onClick={addCustomProvider} className={secondaryBtnCls}>
@@ -568,7 +599,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
               <div>
                 <label className="block text-sm font-medium text-kora-text mb-1">{t.settings.promptTemplate}</label>
                 <p className="text-xs text-kora-muted mb-3">{t.settings.promptTemplateDesc}</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {PROMPT_TEMPLATES.map((tp) => (
                     <button
                       key={tp.id}
@@ -576,22 +607,22 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                         onUpdate('activeTemplate', tp.id)
                         onUpdate('systemPrompt', tp.prompt)
                       }}
-                      className={`text-left p-3.5 rounded-2xl border transition-all ${
+                      className={`text-left p-3.5 rounded-2xl border transition-all text-sm ${
                         config.activeTemplate === tp.id
                           ? 'bg-kora-accent/10 border-kora-accent'
                           : 'bg-kora-card border-kora-border hover:border-kora-border'
                       }`}
                     >
-                      <span className="block text-xs font-semibold text-kora-text mb-1">{tp.name}</span>
-                      <span className="block text-[10px] text-kora-muted leading-relaxed line-clamp-2">
+                      <span className="block text-sm font-semibold text-kora-text mb-1">{tp.name}</span>
+                      <span className="block text-xs text-kora-muted leading-relaxed line-clamp-2">
                         {tp.prompt.length > 110 ? tp.prompt.slice(0, 110) + '…' : tp.prompt}
                       </span>
                     </button>
                   ))}
                   {config.activeTemplate === 'custom' && (
                     <div className="p-3.5 rounded-2xl border border-kora-accent bg-kora-accent/10">
-                      <span className="block text-xs font-semibold text-kora-text">{t.settings.custom}</span>
-                      <span className="block text-[10px] text-kora-muted leading-relaxed mt-1 line-clamp-2">
+                      <span className="block text-sm font-semibold text-kora-text">{t.settings.custom}</span>
+                      <span className="block text-xs text-kora-muted leading-relaxed mt-1 line-clamp-2">
                         {config.systemPrompt.length > 110 ? config.systemPrompt.slice(0, 110) + '…' : config.systemPrompt}
                       </span>
                     </div>
@@ -647,8 +678,8 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       onClick={() => onUpdate('temperature', s.value)}
                       className={`flex-1 px-4 py-2.5 rounded-full text-sm font-medium transition-all ${
                         currentStyle === s.label
-                          ? 'bg-kora-accent text-white'
-                          : 'bg-kora-card border border-kora-border text-kora-muted hover:text-kora-text'
+                          ? 'bg-kora-accent text-white shadow-sm shadow-kora-accent/20'
+                          : 'bg-kora-card border border-kora-border text-kora-muted hover:text-kora-text hover:border-kora-accent'
                       }`}
                     >
                       {t.settings[`style${s.label[0].toUpperCase()}${s.label.slice(1)}` as 'styleConcise' | 'styleBalanced' | 'styleDetailed']}
@@ -658,9 +689,9 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-3">
                   <label className="text-sm font-medium text-kora-text">{t.settings.temperature}</label>
-                  <span className="text-xs text-kora-muted font-mono bg-kora-card border border-kora-border rounded-full px-2.5 py-0.5">
+                  <span className="text-sm text-kora-muted font-mono bg-kora-card border border-kora-border rounded-full px-3 py-1">
                     {config.temperature.toFixed(1)}
                   </span>
                 </div>
@@ -688,17 +719,17 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
               <p className="text-xs text-kora-muted leading-relaxed">{t.settings.voiceDesc}</p>
 
               <div className="border-t border-kora-border pt-4 space-y-3">
-                <label className="block text-xs font-medium text-kora-muted mb-1.5">{t.settings.sttEngine}</label>
+                <label className="block text-sm font-medium text-kora-text mb-1.5">{t.settings.sttEngine}</label>
                 <select
                   value={config.sttEngine ?? 'webspeech'}
                   onChange={(e) => onUpdate('sttEngine', e.target.value)}
-                  className={inputCls}
+                  className={`${inputCls} flex-1`}
                 >
                   <option value="webspeech">{t.settings.sttWebSpeech}</option>
                   <option value="whisper">{t.settings.sttWhisper}</option>
                 </select>
                 {(config.sttEngine ?? 'webspeech') === 'whisper' && (
-                  <>
+                  <div className="space-y-2.5">
                     <input
                       type="text"
                       value={config.whisperPath ?? ''}
@@ -713,18 +744,18 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       className={inputCls}
                       placeholder="C:\\whisper.cpp\\models\\ggml-base.bin"
                     />
-                  </>
+                  </div>
                 )}
-                <p className="text-[10px] text-kora-muted leading-relaxed">{t.settings.whisperHint}</p>
+                <p className="text-xs text-kora-muted leading-relaxed">{t.settings.whisperHint}</p>
               </div>
               <div className="space-y-2">
                 {voices.map((v) => (
                   <div
                     key={v.name}
-                    className={`flex items-center gap-3 px-3.5 py-2.5 rounded-2xl border transition-all ${
+                    className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all ${
                       config.ttsVoice === v.name
-                        ? 'bg-kora-accent/10 border-kora-accent'
-                        : 'bg-kora-card border-kora-border'
+                        ? 'bg-kora-accent/10 border-kora-accent shadow-sm shadow-kora-accent/10'
+                        : 'bg-kora-card border-kora-border hover:border-kora-border'
                     }`}
                   >
                     <button
@@ -732,7 +763,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                       className="flex-1 flex items-center gap-3 min-w-0 text-left"
                     >
                       <span
-                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                        className={`w-3 h-3 rounded-full shrink-0 ${
                           config.ttsVoice === v.name ? 'bg-kora-accent' : 'bg-kora-border'
                         }`}
                       />
@@ -740,26 +771,26 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                         {v.label}
                       </span>
                       {config.ttsVoice === v.name && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-kora-accent/20 text-kora-accent shrink-0">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-kora-accent/20 text-kora-accent shrink-0 font-medium">
                           ✓
                         </span>
                       )}
                     </button>
                     <button
                       onClick={() => playVoicePreview(v.name)}
-                      className={`w-9 h-9 flex items-center justify-center rounded-full border transition-all shrink-0 ${
+                      className={`w-10 h-10 flex items-center justify-center rounded-full border transition-all shrink-0 ${
                         previewVoice === v.name
-                          ? 'bg-kora-error text-white border-kora-error'
-                          : 'bg-kora-card border-kora-border text-kora-muted hover:text-kora-text hover:border-kora-accent'
+                          ? 'bg-kora-error text-white border-kora-error shadow-sm'
+                          : 'bg-kora-bg border-kora-border text-kora-muted hover:text-kora-text hover:border-kora-accent hover:bg-kora-card'
                       }`}
                       title={t.settings.previewVoice}
                     >
                       {previewVoice === v.name ? (
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
                           <rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor" />
                         </svg>
                       ) : (
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
                           <path d="M2.5 1.5l7 4.5-7 4.5v-9z" fill="currentColor" />
                         </svg>
                       )}
@@ -767,7 +798,7 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                   </div>
                 ))}
                 {voices.length === 0 && (
-                  <p className="text-xs text-kora-muted text-center py-6">…</p>
+                  <p className="text-sm text-kora-muted text-center py-6">{t.settings.loadingVoices}</p>
                 )}
               </div>
             </div>
@@ -776,6 +807,11 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
           {/* ============ MCP ============ */}
           {tab === 'mcp' && (
             <MCPSettings lang={lang} />
+          )}
+
+          {/* ============ LOCAL AI ============ */}
+          {tab === 'local' && (
+            <LocalModels lang={lang} onUpdate={onUpdate} />
           )}
         </div>
       </div>

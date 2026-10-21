@@ -1,0 +1,21 @@
+[package]
+name = "kora-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kora agent core: guards, decision parsing, tool registry, ReAct loop (Rust port of src/agent/*)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+kora-security = { path = "../kora-security" }
+kora-llm = { path = "../kora-llm" }
+kora-rpc = { path = "../kora-rpc" }
+kora-store = { path = "../kora-store" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

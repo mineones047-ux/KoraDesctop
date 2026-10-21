@@ -1,0 +1,29 @@
+[package]
+name = "kora-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kora Tauri 2 shell: a thin window.kora.* adapter over the kora-rpc/1 core (ROADMAP P4)"
+
+[lib]
+name = "kora_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kora-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+kora-methods = { path = "../kora-methods" }
+kora-rpc = { path = "../kora-rpc" }
+tauri = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile.workspace = true

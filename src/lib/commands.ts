@@ -10,17 +10,28 @@ import type { Translations } from '../i18n/en'
 import type { MutableRefObject } from 'react'
 import { validatePath } from './path-security'
 
+/** A dangerous action parked in the confirmation slot, waiting for `!confirm`/`!deny`. */
 export interface PendingAction {
   type: string
   args: string[]
   description: string
 }
 
+/** What the chat shows after a `!` command: `isCommand` tells the caller not to call the LLM. */
 export interface CommandResult {
   isCommand: boolean
   output: string
 }
 
+/**
+ * One `!` command's implementation.
+ *
+ * `processCommand` is passed into the context so a command can re-enter the dispatcher —
+ * that is how `!confirm` retries the parked action with `bypassConfirm`, and how
+ * `!deny` discards it. Going back through the dispatcher (rather than calling the handler
+ * directly) is what guarantees the retry cannot re-prompt for a command the user already
+ * approved, and cannot skip the check for one they did not.
+ */
 type CommandHandler = (
   args: string,
   t: Translations,
@@ -30,20 +41,29 @@ type CommandHandler = (
   },
 ) => Promise<CommandResult>
 
+/** A successful command result. Failures are *results*, not throws — see the file header. */
 function ok(output: string): CommandResult {
   return { isCommand: true, output }
 }
 
+/** Render any thrown value as a command error, so one bad call never breaks the chat. */
 function err(error: unknown): CommandResult {
   return { isCommand: true, output: `Error: ${(error as Error).message}` }
 }
 
+/** Human-readable byte count for `!stat`. */
 function formatSize(bytes: number): string {
   if (bytes > 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   if (bytes > 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return bytes + ' B'
 }
 
+/**
+ * Every `!` command, keyed by name.
+ *
+ * `help` is written out in full here rather than derived from this table, so the ordering
+ * and grouping of the help text stay stable instead of shuffling whenever a tool is added.
+ */
 const handlers: Record<string, CommandHandler> = {
   shell: async (args) => {
     try {
@@ -318,32 +338,58 @@ const handlers: Record<string, CommandHandler> = {
   },
 }
 
+/** Look up a command by name; `undefined` means the text is not a known `!command`. */
 export function getCommandHandler(name: string): CommandHandler | undefined {
   return handlers[name]
 }
 
+/**
+ * Commands that require an explicit `!confirm` before they run.
+ *
+ * A second layer, not the only one: the main process re-checks the path and the shell
+ * denylist. This list exists so a *user-typed* command gets a clear prompt rather than a
+ * refusal, and so the prompt can say what is about to happen.
+ */
 export const DANGEROUS_COMMANDS = new Set(['shell', 'file', 'delete', 'write', 'rename', 'mkdir', 'open', 'shutdown', 'restart'])
 
-export function describeDangerousCommand(cmd: string, args: string): string {
+/**
+ * One line describing what a pending command would do, shown in the `!confirm` prompt.
+ *
+ * Localised: this sentence is the only thing standing between the user and a destructive
+ * action, so it has to be readable in whatever language the UI is in.
+ */
+export function describeDangerousCommand(cmd: string, args: string, t: Translations): string {
+  const arg = args.trim()
   switch (cmd) {
-    case 'shell': return `Run shell command: \`${args}\``
-    case 'file': return `Read file: ${args.trim()}`
-    case 'delete': return `Delete: ${args.trim()}`
-    case 'write': return `Write to file: ${args.trim().split(' ')[0]}`
-    case 'rename': return `Rename/move: ${args.trim()}`
-    case 'mkdir': return `Create directory: ${args.trim()}`
-    case 'open': return `Open: ${args.trim()}`
-    case 'shutdown': return 'Shut down the PC'
-    case 'restart': return 'Restart the PC'
+    case 'shell': return t.danger.shell.replace('{args}', args)
+    case 'file': return t.danger.file.replace('{args}', arg)
+    case 'delete': return t.danger.delete.replace('{args}', arg)
+    case 'write': return t.danger.write.replace('{args}', arg.split(' ')[0] ?? '')
+    case 'rename': return t.danger.rename.replace('{args}', arg)
+    case 'mkdir': return t.danger.mkdir.replace('{args}', arg)
+    case 'open': return t.danger.open.replace('{args}', arg)
+    case 'shutdown': return t.danger.shutdown
+    case 'restart': return t.danger.restart
     default: return args
   }
 }
 
+/**
+ * A hand-written recursive-descent arithmetic parser for `!calc`.
+ *
+ * **Never** `eval`, and never a library that evaluates expressions. The input is typed by
+ * a user but sits in a path where a dynamic-code path would be a real injection surface,
+ * and the arithmetic here needs nothing more than these four precedence levels.
+ *
+ * Grammar: `add := mul (('+'|'-') mul)*`, `mul := atom (('*'|'/'|'%') atom)*`,
+ * `atom := number | '(' add ')' | ('+'|'-') atom`.
+ */
 function parseCalc(input: string): number {
   let pos = 0
   const peek = (): string => input[pos] ?? ''
   const eat = (): string => input[pos++]
 
+  /** A numeric literal, consuming digits and at most one decimal point. */
   function parseNumber(): number {
     const start = pos
     while (/[0-9.]/.test(peek())) eat()
@@ -354,6 +400,7 @@ function parseCalc(input: string): number {
     return n
   }
 
+  /** Parenthesised sub-expression or a unary sign. */
   function parseAtom(): number {
     const ch = peek()
     if (ch === '(') { eat(); const v = parseAddSub(); if (eat() !== ')') throw new Error('expected )'); return v }
@@ -362,6 +409,7 @@ function parseCalc(input: string): number {
     return parseNumber()
   }
 
+  /** `*`, `/`, `%` — left-associative, with an explicit zero check. */
   function parseMulDiv(): number {
     let v = parseAtom()
     for (;;) {
@@ -373,6 +421,7 @@ function parseCalc(input: string): number {
     }
   }
 
+  /** `+` and `-`, the lowest-precedence level. */
   function parseAddSub(): number {
     let v = parseMulDiv()
     for (;;) {

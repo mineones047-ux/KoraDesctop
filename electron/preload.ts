@@ -154,4 +154,23 @@ contextBridge.exposeInMainWorld('kora', {
     readNote: (id: string) => ipcRenderer.invoke('obsidian:readNote', id),
     pickVault: () => ipcRenderer.invoke('obsidian:pickVault'),
   },
+
+  localAI: {
+    profile: () => ipcRenderer.invoke('localai:profile'),
+    search: (query: string) => ipcRenderer.invoke('localai:search', query),
+    files: (repoId: string) => ipcRenderer.invoke('localai:files', repoId),
+    download: (repoId: string, file: string) => ipcRenderer.invoke('localai:download', repoId, file),
+    cancel: (repoId: string, file: string) => ipcRenderer.invoke('localai:cancel', repoId, file),
+    list: () => ipcRenderer.invoke('localai:list'),
+    remove: (repoId: string, file: string) => ipcRenderer.invoke('localai:remove', repoId, file),
+    engineStatus: () => ipcRenderer.invoke('localai:engineStatus'),
+    downloadEngine: () => ipcRenderer.invoke('localai:downloadEngine'),
+    start: (repoId: string, file: string) => ipcRenderer.invoke('localai:start', repoId, file),
+    stop: () => ipcRenderer.invoke('localai:stop'),
+    onProgress: (callback: (payload: unknown) => void) => {
+      const listener = (_e: unknown, payload: unknown) => callback(payload)
+      ipcRenderer.on('localai:progress', listener)
+      return () => ipcRenderer.removeListener('localai:progress', listener)
+    },
+  },
 })

@@ -26,3 +26,8 @@ Thumbs.db
 .DS_Store
 .idea/
 *.swp
+
+# Stray artifacts from previous sessions (kept on disk, never committed)
+files.txt
+_/
+tailwind.config.ref.js

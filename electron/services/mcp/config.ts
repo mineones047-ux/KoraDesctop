@@ -162,10 +162,24 @@ export class MCPConfig {
     this.filePath = filePath
   }
 
+  /** Where the profile lives, for the settings panel to show the user. */
   getFilePath(): string {
     return this.filePath
   }
 
+  /**
+   * Read `mcp.json`, normalising and migrating it; seeds defaults on first run.
+   *
+   * Three things happen here and each is load-bearing:
+   *  1. **shape check** — a file that is not `{servers: [...]}` is treated as corrupt
+   *     rather than partially trusted;
+   *  2. **migration** — a legacy `npx -y <pkg>` launch is rewritten to the bundled
+   *     single-process form when the package ships with the app;
+   *  3. **first run** — defaults are written, so a user never sees an empty panel and
+   *     wonders what to type.
+   * A corrupt file is renamed to `.bak` before the defaults are written, so the original
+   * entries are never destroyed by the overwrite.
+   */
   async load(): Promise<MCPConfigFile> {
     if (this.loaded) return this.data
     let createdDefaults = false
@@ -211,15 +225,18 @@ export class MCPConfig {
     return this.data
   }
 
+  /** Every server, deep-copied so a caller cannot mutate our state. */
   getAll(): MCPServerConfig[] {
     return this.data.servers.map((s) => ({ ...s, env: s.env ? { ...s.env } : undefined, args: s.args ? [...s.args] : undefined }))
   }
 
+  /** One server by id, deep-copied; `null` when it does not exist. */
   get(id: string): MCPServerConfig | null {
     const s = this.data.servers.find((x) => x.id === id)
     return s ? { ...s, env: s.env ? { ...s.env } : undefined, args: s.args ? [...s.args] : undefined } : null
   }
 
+  /** Add or replace a server. Throws when the definition fails validation. */
   upsert(server: MCPServerConfig): void {
     const norm = this.normalizeServer(server)
     if (!norm) throw new Error('Invalid server config')
@@ -232,6 +249,7 @@ export class MCPConfig {
     this.scheduleWrite()
   }
 
+  /** Delete a server; returns whether anything was removed. */
   remove(id: string): boolean {
     const before = this.data.servers.length
     this.data.servers = this.data.servers.filter((s) => s.id !== id)
@@ -242,6 +260,7 @@ export class MCPConfig {
     return false
   }
 
+  /** Toggle a server on or off; returns whether the id was known. */
   setEnabled(id: string, enabled: boolean): boolean {
     const s = this.data.servers.find((x) => x.id === id)
     if (!s) return false
@@ -250,6 +269,13 @@ export class MCPConfig {
     return true
   }
 
+  /**
+   * Coerce an arbitrary record into a valid server definition, or `null`.
+   *
+   * This is the app's validation for `mcp.json`, which is a user-editable file that may
+   * have been written by a future version. Booleans default to *on* rather than off, so a
+   * truncated entry does not silently disable a working server.
+   */
   private normalizeServer(input: unknown): MCPServerConfig | null {
     if (!input || typeof input !== 'object') return null
     const s = input as Record<string, unknown>
@@ -281,6 +307,7 @@ export class MCPConfig {
     }
   }
 
+  /** Keep only string-valued env entries; an empty result becomes `undefined`. */
   private normalizeEnv(input: unknown): Record<string, string> | undefined {
     if (!input || typeof input !== 'object') return undefined
     const env: Record<string, string> = {}
@@ -290,12 +317,20 @@ export class MCPConfig {
     return Object.keys(env).length > 0 ? env : undefined
   }
 
+  /**
+   * Queue a write.
+   *
+   * Serialised through a promise chain: the settings panel can fire several mutations in
+   * a row, and without this they would each write a `.tmp` and rename it in an order not
+   * guaranteed to match the call order.
+   */
   private scheduleWrite(): void {
     this.writeQueue = this.writeQueue.then(() => this.persist()).catch((err) => {
       console.error('[MCP] persist error:', err)
     })
   }
 
+  /** Write the profile atomically: tmp file, then rename over the target. */
   private async persist(): Promise<void> {
     const dir = path.dirname(this.filePath)
     await fs.mkdir(dir, { recursive: true })

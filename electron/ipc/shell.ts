@@ -6,6 +6,16 @@ import { isDangerousCommand } from '../lib/shell-security'
 
 const execAsync = promisify(exec)
 
+/**
+ * Run a shell command on the user's behalf — the agent's `shell` tool.
+ *
+ * Order matters: the denylist runs *before* the command reaches `exec`, and every
+ * outcome (blocked, failed, ok) is written to the audit log, because this is the one
+ * handler where a bug has consequences outside the app.
+ *
+ * The blocking return is deliberately *not* an exception: the agent needs to see a
+ * refusal as a tool result it can explain, not an opaque IPC error.
+ */
 export function registerShellHandlers() {
   ipcMain.handle('shell:execute', async (_event, command: string, options?: { bypassDangerCheck?: boolean }) => {
     const normalizedCmd = command.trim()
