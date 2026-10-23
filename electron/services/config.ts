@@ -51,6 +51,18 @@ interface ConfigData {
   sttEngine?: string
   whisperPath?: string
   whisperModel?: string
+  /** Agent confirmation policy: 'ask' (default) | 'readonly' | 'full'. */
+  agentApprovalMode?: string
+  /** llama.cpp `--n-gpu-layers`; -1 = engine default, 0 = CPU only. */
+  llamacppGpuLayers?: number
+  /** llama.cpp context window (`-c`). */
+  llamacppCtxSize?: number
+  /** Start Kora when the OS logs the user in. */
+  autoLaunchApp?: boolean
+  /** `repoId/file` served by llama-server right after launch ('' = nothing). */
+  autoStartChatModel?: string
+  /** whisper model file fetched at launch if missing ('' = nothing). */
+  autoStartSttModel?: string
 }
 
 /** Every default, in the same order as `ConfigData`, so the two can be diffed by eye. */
@@ -78,6 +90,12 @@ const DEFAULT_CONFIG: ConfigData = {
   sttEngine: 'webspeech',
   whisperPath: '',
   whisperModel: '',
+  agentApprovalMode: 'ask',
+  llamacppGpuLayers: -1,
+  llamacppCtxSize: 4096,
+  autoLaunchApp: false,
+  autoStartChatModel: '',
+  autoStartSttModel: '',
 }
 
 const ENC_PREFIX = 'enc:'
@@ -225,12 +243,23 @@ class Config {
       sttEngine: 'string',
       whisperPath: 'string',
       whisperModel: 'string',
+      agentApprovalMode: 'string',
+      llamacppGpuLayers: 'number',
+      llamacppCtxSize: 'number',
+      autoLaunchApp: 'boolean',
+      autoStartChatModel: 'string',
+      autoStartSttModel: 'string',
     }
     const type = expectedType[key]
     if (!type) return
     if (type === 'number') {
       if (typeof value !== 'number' || !isFinite(value)) return
       if (key === 'temperature') value = Math.max(0, Math.min(2, value))
+      // llama.cpp engine launch options: -1 = engine decides, 0 = CPU only.
+      if (key === 'llamacppGpuLayers') value = Math.max(-1, Math.min(999, Math.round(value as number)))
+      if (key === 'llamacppCtxSize') value = Math.max(256, Math.min(131072, Math.round(value as number)))
+    } else if (type === 'boolean') {
+      if (typeof value !== 'boolean') return
     } else if (type === 'object') {
       if (!Array.isArray(value)) return
       if (key === 'customProviders') {
@@ -243,7 +272,10 @@ class Config {
             typeof (p as any).model === 'string',
         )
       }
-    } else if (typeof value !== 'string') {
+    } else if (type === 'string') {
+      if (typeof value !== 'string') return
+      if (key === 'agentApprovalMode' && !['ask', 'readonly', 'full'].includes(value)) return
+    } else {
       return
     }
     if ((key === 'graphLinkColor' || key === 'graphNodeColor') && value !== '' && !/^#[0-9a-fA-F]{6}$/.test(value as string)) return

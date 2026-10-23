@@ -268,6 +268,14 @@ export interface StartResult {
   external: boolean
 }
 
+/** Optional llama-server launch knobs (from the user's saved config). */
+export interface StartOptions {
+  /** Layers to offload to the GPU (`--n-gpu-layers`); -1 / undefined = engine default. */
+  gpuLayers?: number
+  /** Context window (`-c`); undefined = 4096. */
+  ctxSize?: number
+}
+
 /**
  * Serve `modelPath` on `port`.
  *
@@ -276,7 +284,7 @@ export interface StartResult {
  * would just lose the port race. Otherwise our own child is started and the
  * wait is bounded: 180 s covers a cold 14B load from an SSD.
  */
-export async function startServer(modelPath: string, port: number): Promise<StartResult> {
+export async function startServer(modelPath: string, port: number, opts: StartOptions = {}): Promise<StartResult> {
   // Restart cleanly when a managed server from a previous click is alive.
   if (child && child.exitCode === null) await stopServer()
 
@@ -301,11 +309,12 @@ export async function startServer(modelPath: string, port: number): Promise<Star
   externalServer = false
   // A readable id in Settings' model list instead of the raw file path.
   const alias = path.basename(modelPath).replace(/\.gguf$/i, '')
-  const proc = spawn(
-    binary,
-    ['-m', modelPath, '--alias', alias, '--host', '127.0.0.1', '--port', String(port), '-c', '4096'],
-    { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] },
-  )
+  const args = ['-m', modelPath, '--alias', alias, '--host', '127.0.0.1', '--port', String(port)]
+  // GPU offload: llama can't see our intent — an explicit 0 pins the model to CPU.
+  const gpu = typeof opts.gpuLayers === 'number' && opts.gpuLayers >= 0 ? opts.gpuLayers : null
+  if (gpu !== null) args.push('-ngl', String(gpu))
+  args.push('-c', String(opts.ctxSize ?? 4096))
+  const proc = spawn(binary, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
   child = proc
   proc.stderr?.on('data', (data: Buffer) => {
     for (const line of data.toString('utf-8').split(/\r?\n/)) if (line.trim()) pushStderr(line)

@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('kora', {
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
     findFiles: (pattern: string, options?: { searchDir?: string; maxResults?: number; maxDepth?: number }) =>
       ipcRenderer.invoke('fs:findFiles', pattern, options),
+    installSkill: (url: string) => ipcRenderer.invoke('fs:installSkill', url),
   },
 
   shell: {
@@ -142,11 +143,17 @@ contextBridge.exposeInMainWorld('kora', {
     setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('mcp:setEnabled', id, enabled),
     call: (fullName: string, args: Record<string, unknown>) => ipcRenderer.invoke('mcp:call', fullName, args),
     diagnostics: (id: string) => ipcRenderer.invoke('mcp:diagnostics', id),
+    install: (spec: { package: string; id?: string; name?: string; args?: string[]; env?: Record<string, string>; autoStart?: boolean }) =>
+      ipcRenderer.invoke('mcp:install', spec),
     onChanged: (callback: (servers: unknown[]) => void) => {
       const listener = (_e: unknown, payload: unknown[]) => callback(payload)
       ipcRenderer.on('mcp:changed', listener)
       return () => ipcRenderer.removeListener('mcp:changed', listener)
     },
+  },
+
+  app: {
+    setAutoLaunch: (enabled: boolean) => ipcRenderer.invoke('app:setAutoLaunch', enabled),
   },
 
   obsidian: {
@@ -159,8 +166,13 @@ contextBridge.exposeInMainWorld('kora', {
     profile: () => ipcRenderer.invoke('localai:profile'),
     search: (query: string) => ipcRenderer.invoke('localai:search', query),
     files: (repoId: string) => ipcRenderer.invoke('localai:files', repoId),
+    downloadStt: (file: string) => ipcRenderer.invoke('localai:downloadStt', file),
+    scanDisks: () => ipcRenderer.invoke('localai:scanDisks'),
+    startExternal: (path: string) => ipcRenderer.invoke('localai:startExternal', path),
     download: (repoId: string, file: string) => ipcRenderer.invoke('localai:download', repoId, file),
     cancel: (repoId: string, file: string) => ipcRenderer.invoke('localai:cancel', repoId, file),
+    pause: (repoId: string, file: string) => ipcRenderer.invoke('localai:pause', repoId, file),
+    partials: (repoId: string) => ipcRenderer.invoke('localai:partials', repoId),
     list: () => ipcRenderer.invoke('localai:list'),
     remove: (repoId: string, file: string) => ipcRenderer.invoke('localai:remove', repoId, file),
     engineStatus: () => ipcRenderer.invoke('localai:engineStatus'),

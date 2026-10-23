@@ -117,6 +117,24 @@
   line-height: 1.6;
 }
 
+/* ── Design tokens ──
+   One radius scale and one motion curve for the whole app. Components use the
+   Tailwind aliases (rounded-card, rounded-field, shadow-panel, ease-kora) so a
+   change here lands everywhere instead of drifting per file. */
+:root {
+  --kora-radius-field: 12px;
+  --kora-radius-card: 16px;
+  --kora-radius-panel: 20px;
+  --kora-shadow-panel: 0 18px 50px rgb(0 0 0 / 0.28);
+  --kora-shadow-pop: 0 10px 30px rgb(0 0 0 / 0.22);
+  --kora-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-theme='light'] {
+  --kora-shadow-panel: 0 18px 50px rgb(30 45 65 / 0.12);
+  --kora-shadow-pop: 0 10px 30px rgb(30 45 65 / 0.1);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -130,6 +148,66 @@ html, body, #root {
   background-color: rgb(var(--kora-bg));
   color: rgb(var(--kora-text));
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus must always be visible. Mouse focus keeps the softer border
+   treatment the components already provide. */
+:focus-visible {
+  outline: 2px solid rgb(var(--kora-accent));
+  outline-offset: 2px;
+}
+
+/* Scroll regions own their scroll: a modal or sidebar reaching its end must not
+   scroll the panel behind it. */
+.overflow-y-auto,
+.overflow-x-auto {
+  overscroll-behavior: contain;
+}
+
+/* Row actions are revealed on hover for pointer users, but stay visible on touch
+   devices (no hover) and whenever anything inside has keyboard focus. */
+.row-actions {
+  opacity: 0;
+  transition: opacity 150ms var(--kora-ease);
+}
+.group:hover .row-actions,
+.group:focus-within .row-actions,
+.row-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .row-actions { opacity: 1; }
+}
+
+/* Skeleton shimmer used by the agent panel and import states. */
+@keyframes kora-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.skeleton {
+  background-image: linear-gradient(90deg, transparent, rgb(var(--kora-text) / 0.06), transparent);
+  background-size: 200% 100%;
+  animation: kora-shimmer 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  [data-theme='retro'] button:hover,
+  [data-theme='retro'] button:active {
+    transform: none;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -162,20 +240,16 @@ html, body, #root {
   background-color: rgba(var(--kora-accent), 0.3);
 }
 
-input, textarea, select {
-  outline: none;
-}
-
 textarea {
   field-sizing: content;
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.3s var(--kora-ease);
 }
 
 .animate-slide-up {
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp 0.3s var(--kora-ease);
 }
 
 @keyframes fadeIn {
@@ -192,4 +266,30 @@ textarea {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Markdown inside an assistant message: one rhythm for every block, so answers
+   of any length read as a document rather than a pile of divs. */
+.markdown {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.markdown > * + * {
+  margin-top: 0.65rem;
+}
+.markdown h1, .markdown h2, .markdown h3 {
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.markdown h1 { font-size: 1.15rem; }
+.markdown h2 { font-size: 1.04rem; }
+.markdown h3 { font-size: 0.96rem; }
+.markdown ul, .markdown ol {
+  padding-left: 1.25rem;
+}
+.markdown li + li {
+  margin-top: 0.25rem;
+}
+.markdown hr {
+  border-color: rgb(var(--kora-border));
 }

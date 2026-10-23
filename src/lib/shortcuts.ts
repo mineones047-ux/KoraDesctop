@@ -5,8 +5,9 @@
  *
  * Design rules:
  * - `primary` is Ctrl on Windows/Linux and Cmd on macOS; both are accepted.
- * - Chords never fire with Alt held (Alt+key is a menu/system chord on Windows)
- *   or with Shift held (so Shift+Ctrl+K stays free for a future command palette).
+ * - Chords never fire with Alt held (Alt+key is a menu/system chord on Windows).
+ *   Shift is ignored for ordinary chords so Shift+Ctrl+K stays free — it is bound
+ *   separately to the sidebar filter, the one intentional shift-chord.
  * - Escape is claimed only when a layer is open, so components that own their
  *   own Escape behaviour (the input command dropdown, chat rename) keep working
  *   when nothing is stacked on top.
@@ -14,7 +15,7 @@
 
 /** The shortcut chords Kora binds. Add a variant here rather than a new key, to keep the
  *  surface small enough to remember and to avoid colliding with platform chords. */
-export type ShortcutAction = 'newChat' | 'focusChatSearch' | 'closeTopLayer'
+export type ShortcutAction = 'newChat' | 'commandPalette' | 'focusChatSearch' | 'closeTopLayer'
 
 /** The subset of `KeyboardEvent` the resolver needs (keeps it testable). */
 export interface ShortcutEventLike {
@@ -48,8 +49,12 @@ export function resolveShortcut(
 
   if (primary && !event.altKey && !event.shiftKey) {
     if (key === 'n') return 'newChat'
-    if (key === 'k') return 'focusChatSearch'
+    // Ctrl/Cmd+K is the palette (search + actions + prompts). Shift+Ctrl/Cmd+K keeps
+    // jumping straight to the sidebar filter for people used to the old chord.
+    if (key === 'k') return 'commandPalette'
   }
+
+  if (primary && event.shiftKey && !event.altKey && key === 'k') return 'focusChatSearch'
 
   if (event.key === 'Escape' && context.openLayers > 0) return 'closeTopLayer'
 

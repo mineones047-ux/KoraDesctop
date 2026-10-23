@@ -14,7 +14,7 @@ interface SettingsProps {
   onClose: () => void
 }
 
-type Tab = 'customize' | 'provider' | 'prompt' | 'voice' | 'mcp' | 'local'
+type Tab = 'customize' | 'provider' | 'prompt' | 'prompts' | 'voice' | 'mcp' | 'local'
 
 /**
  * The sentence the "preview voice" button speaks, per language.
@@ -66,6 +66,14 @@ const TABS: { id: Tab; icon: React.ReactNode }[] = [
     ),
   },
   {
+    id: 'prompts',
+    icon: (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3l2.6 5.8 6.4.7-4.8 4.3 1.4 6.2L12 17l-5.6 3 1.4-6.2L3 9.5l6.4-.7L12 3z" />
+      </svg>
+    ),
+  },
+  {
     id: 'voice',
     icon: (
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -107,10 +115,15 @@ const TABS: { id: Tab; icon: React.ReactNode }[] = [
 export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
   const t = useI18n(lang)
   const [tab, setTab] = useState<Tab>('customize')
+  /** Fullscreen-like mode: the settings window is enlarged on its own, without
+   *  touching the main window (the overlay stays above everything). */
+  const [maximized, setMaximized] = useState(false)
   const [models, setModels] = useState<string[]>([])
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null)
   const [testing, setTesting] = useState(false)
   const [customName, setCustomName] = useState('')
+  const [newPromptTitle, setNewPromptTitle] = useState('')
+  const [newPromptText, setNewPromptText] = useState('')
   const [voices, setVoices] = useState<{ name: string; label: string }[]>([])
   const [previewVoice, setPreviewVoice] = useState<string | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -235,13 +248,17 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
   const currentStyle = STYLE_PRESETS.find((s) => Math.abs(s.value - config.temperature) < 0.05)?.label ?? null
 
   const inputCls =
-    'w-full bg-kora-card border border-kora-border rounded-xl px-4 py-2.5 text-sm text-kora-text placeholder-kora-muted/60 focus:outline-none focus:border-kora-accent focus:ring-2 focus:ring-kora-accent/20 transition-all'
+    'w-full bg-kora-card border border-kora-border rounded-xl px-4 py-2.5 text-sm text-kora-text placeholder-kora-muted/60 focus:border-kora-accent focus:ring-2 focus:ring-kora-accent/20 transition-all'
   const secondaryBtnCls =
     'px-5 py-2.5 bg-kora-card border border-kora-border rounded-full text-sm font-medium text-kora-text hover:border-kora-accent hover:text-kora-text hover:bg-kora-card/80 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm'
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>        <div
-        className="w-full max-w-3xl mx-4 bg-kora-surface border border-kora-border rounded-3xl shadow-2xl animate-slide-up"
+        className={`${
+          maximized
+            ? 'w-[97vw] h-[95vh] max-w-none mx-0'
+            : 'w-full max-w-4xl mx-4 max-h-[85vh]'
+        } bg-kora-surface border border-kora-border rounded-3xl shadow-2xl animate-slide-up flex flex-col overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -250,38 +267,51 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
             <h2 className="text-lg font-semibold text-kora-text">{t.settings.title}</h2>
             <p className="text-xs text-kora-muted mt-0.5">{activeProvider.name} · {isLocal ? t.settings.local : t.settings.cloud}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setMaximized((m) => !m)}
+              aria-label={maximized ? t.titleBar.minimize : t.titleBar.maximize}
+              title={maximized ? t.titleBar.minimize : t.titleBar.maximize}
+              className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="2.5" y="2.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+            </button>
+            <button
+              onClick={onClose}
+              aria-label={t.titleBar.close}
+              title={t.titleBar.close}
+              className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="px-5 pt-4">
-          <div className="flex gap-2 bg-kora-card rounded-full p-1 overflow-x-auto">
+        {/* Vertical rail + content side by side */}
+        <div className="flex flex-1 min-h-0">
+          <nav className="w-48 shrink-0 border-r border-kora-border p-3 space-y-1 overflow-y-auto">
             {TABS.map((tabDef) => (
               <button
                 key={tabDef.id}
                 onClick={() => setTab(tabDef.id)}
-                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+                className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                   tab === tabDef.id
                     ? 'bg-kora-accent-soft text-kora-text'
-                    : 'text-kora-muted hover:text-kora-text hover:bg-kora-border/30'
+                    : 'text-kora-muted hover:text-kora-text hover:bg-kora-card'
                 }`}
               >
                 {tabDef.icon}
-                {t.settings.tabs[tabDef.id]}
+                <span className="truncate">{t.settings.tabs[tabDef.id]}</span>
               </button>
             ))}
-          </div>
-        </div>
+          </nav>
 
-        {/* Content */}
-        <div className="p-6 max-h-[85vh] overflow-y-auto">
+          {/* Content */}
+          <div className="flex-1 min-w-0 p-6 overflow-y-auto">
           {/* ============ CUSTOMIZE ============ */}
           {tab === 'customize' && (
             <div className="space-y-6">
@@ -380,10 +410,141 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
                   ))}
                 </div>
               </div>
+
+              {/* ---- Behavior: approval policy + OS autostart ---- */}
+              <div className="border-t border-kora-border pt-5">
+                <label className="block text-sm font-medium text-kora-text mb-1">{t.settings.behaviorTitle}</label>
+                <div className="space-y-4 mt-3">
+                  <div>
+                    <p className="text-xs font-medium text-kora-text">{t.settings.approvalModeLabel}</p>
+                    <p className="text-xs text-kora-muted mb-2">{t.settings.approvalModeDesc}</p>
+                    <div className="flex gap-2">
+                      {([
+                        { id: 'ask' as const, label: t.settings.approvalAsk },
+                        { id: 'readonly' as const, label: t.settings.approvalReadonly },
+                        { id: 'full' as const, label: t.settings.approvalFull },
+                      ]).map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => onUpdate('agentApprovalMode', m.id)}
+                          className={`px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+                            (config.agentApprovalMode ?? 'ask') === m.id
+                              ? 'bg-kora-accent-soft border-kora-accent text-kora-text'
+                              : 'bg-kora-card border-kora-border text-kora-muted hover:text-kora-text'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="flex items-start justify-between gap-4 cursor-pointer">
+                    <span>
+                      <span className="text-xs font-medium text-kora-text">{t.settings.autoLaunchLabel}</span>
+                      <span className="block text-xs text-kora-muted">{t.settings.autoLaunchDesc}</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        const next = !(config.autoLaunchApp ?? false)
+                        onUpdate('autoLaunchApp', next)
+                        void window.kora.app.setAutoLaunch(next)
+                      }}
+                      className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${
+                        (config.autoLaunchApp ?? false) ? 'bg-kora-accent' : 'bg-kora-border'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+                          (config.autoLaunchApp ?? false) ? 'left-[22px]' : 'left-0.5'
+                        }`}
+                      />
+                    </button>
+                  </label>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* ============ PROVIDER ============ */}
+          {/* ============ PROMPT LIBRARY ============ */}
+          {tab === 'prompts' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-base font-medium text-kora-text">{t.promptLib.title}</h3>
+                <p className="mt-1 text-xs text-kora-muted leading-relaxed">{t.promptLib.desc}</p>
+              </div>
+
+              <div className="space-y-2">
+                {(config.savedPrompts ?? []).length === 0 ? (
+                  <div className="rounded-card border border-dashed border-kora-border px-4 py-8 text-center">
+                    <p className="text-xs text-kora-muted">{t.promptLib.empty}</p>
+                  </div>
+                ) : (
+                  (config.savedPrompts ?? []).map((prompt) => (
+                    <div key={prompt.id} className="flex items-start gap-3 rounded-card border border-kora-border bg-kora-card px-3.5 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-kora-text truncate">{prompt.title}</p>
+                        <p className="mt-0.5 text-xs text-kora-muted whitespace-pre-wrap line-clamp-3">{prompt.prompt}</p>
+                      </div>
+                      <button
+                        onClick={() =>
+                          onUpdate(
+                            'savedPrompts',
+                            (config.savedPrompts ?? []).filter((item) => item.id !== prompt.id),
+                          )
+                        }
+                        title={t.promptLib.delete}
+                        aria-label={t.promptLib.delete}
+                        className="shrink-0 p-1.5 rounded-lg text-kora-muted hover:text-kora-error hover:bg-kora-bg transition-colors"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                          <path d="M2 3h8M4 3V2h4v1M3 3v7h6V3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="border-t border-kora-border pt-5 space-y-2">
+                <label className="block text-sm font-medium text-kora-text">{t.promptLib.add}</label>
+                <input
+                  type="text"
+                  value={newPromptTitle}
+                  onChange={(e) => setNewPromptTitle(e.target.value)}
+                  placeholder={t.promptLib.namePlaceholder}
+                  aria-label={t.promptLib.namePlaceholder}
+                  maxLength={60}
+                  className={inputCls}
+                />
+                <textarea
+                  value={newPromptText}
+                  onChange={(e) => setNewPromptText(e.target.value)}
+                  placeholder={t.promptLib.textPlaceholder}
+                  aria-label={t.promptLib.textPlaceholder}
+                  rows={4}
+                  className={`${inputCls} resize-y min-h-[96px] font-normal leading-relaxed`}
+                />
+                <button
+                  onClick={() => {
+                    const title = newPromptTitle.trim()
+                    const text = newPromptText.trim()
+                    if (!title || !text) return
+                    onUpdate('savedPrompts', [
+                      { id: crypto.randomUUID(), title, prompt: text },
+                      ...(config.savedPrompts ?? []),
+                    ])
+                    setNewPromptTitle('')
+                    setNewPromptText('')
+                  }}
+                  disabled={!newPromptTitle.trim() || !newPromptText.trim()}
+                  className="px-4 py-2.5 rounded-field text-sm font-medium bg-kora-accent text-white hover:bg-kora-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t.promptLib.save}
+                </button>
+              </div>
+            </div>
+          )}
+
           {tab === 'provider' && (
             <div className="space-y-6">
               <p className="text-xs text-kora-muted leading-relaxed">{t.settings.providerDesc}</p>              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
@@ -811,8 +972,9 @@ export function Settings({ lang, config, onUpdate, onClose }: SettingsProps) {
 
           {/* ============ LOCAL AI ============ */}
           {tab === 'local' && (
-            <LocalModels lang={lang} onUpdate={onUpdate} />
+            <LocalModels lang={lang} onUpdate={onUpdate} floating onClose={() => setTab('customize')} />
           )}
+          </div>
         </div>
       </div>
     </div>

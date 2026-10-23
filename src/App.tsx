@@ -9,7 +9,7 @@
  * without stable identities React.memo on MessageBubble/InputBar would
  * re-render on every streamed token (see §11).
  */
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useUnifiedChat } from './hooks/useUnifiedChat'
 import { resolveShortcut } from './lib/shortcuts'
 import { useConfig } from './hooks/useConfig'
@@ -25,6 +25,10 @@ import { Settings } from './components/Settings/Settings'
 import { SystemMonitor } from './components/System/SystemMonitor'
 import { AgentDisplay } from './components/Agent/AgentDisplay'
 import { GraphView } from './components/Graph/GraphView'
+import { CommandPalette, type PaletteItem } from './components/CommandPalette'
+import type { PromptSuggestion } from './components/Chat/InputBar'
+import { buildChatMarkdown, exportFileName } from './lib/export-chat'
+import { PROVIDERS } from './types'
 
 /**
  * BCP-47 tags for the Web Speech API, keyed by app language.
@@ -40,16 +44,30 @@ const RECOGNITION_LOCALE: Record<string, string> = {
 }
 
 function App() {
-  const { chats, activeChat, activeChatId, setActiveChatId, createChat, sendMessage, deleteChat, renameChat, isLoading, stopGeneration } = useUnifiedChat()
+  const {
+    chats, activeChat, activeChatId, setActiveChatId, createChat, sendMessage, deleteChat,
+    renameChat, togglePin, editAndResend, regenerate, isLoading, stopGeneration,
+  } = useUnifiedChat()
   const { config, updateConfig } = useConfig()
   const [showSettings, setShowSettings] = useState(false)
   const [showSystem, setShowSystem] = useState(false)
   const { info, processes } = useSystem(showSystem)
   const [showAgent, setShowAgent] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const { speak, stop, playingId, volume, isMuted, toggleMute, changeVolume } = useTTS()
   const [view, setView] = useState<'chat' | 'graph'>('chat')
 
   const t = useI18n(config.language)
+
+  // Text handed to the composer from a suggestion card or the palette. The sequence id
+  // makes repeated picks of the same prompt retrigger the input effect.
+  const [insertRequest, setInsertRequest] = useState<{ id: number; text: string } | null>(null)
+  const insertSeq = useRef(0)
+  const pushDraft = useCallback((text: string) => {
+    insertSeq.current += 1
+    setInsertRequest({ id: insertSeq.current, text })
+    setView('chat')
+  }, [])
 
   // Keyboard shortcuts (`Ctrl/Cmd+N`, `Ctrl/Cmd+K`, `Escape`) — the decision logic is
   // pure and lives in lib/shortcuts.ts, this is only the wiring: which layer a key
@@ -57,15 +75,16 @@ function App() {
   const chatSearchRef = useRef<HTMLInputElement>(null)
   const [searchFocusRequest, setSearchFocusRequest] = useState(0)
   const focusedRequest = useRef(0)
-  const openLayers = Number(showSettings) + Number(showSystem) + Number(showAgent)
+  const openLayers = Number(showSettings) + Number(showSystem) + Number(showAgent) + Number(paletteOpen)
 
   const closeTopLayer = useCallback(() => {
-    // Topmost first: the agent panel renders above the monitors, which render above
-    // settings — the same order the JSX below stacks them in.
-    if (showAgent) setShowAgent(false)
+    // Topmost first: the palette renders above everything, then the agent panel, the
+    // monitors and settings — the same order the JSX below stacks them in.
+    if (paletteOpen) setPaletteOpen(false)
+    else if (showAgent) setShowAgent(false)
     else if (showSystem) setShowSystem(false)
     else if (showSettings) setShowSettings(false)
-  }, [showAgent, showSystem, showSettings])
+  }, [paletteOpen, showAgent, showSystem, showSettings])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -75,6 +94,8 @@ function App() {
       if (action === 'newChat') {
         createChat()
         setView('chat')
+      } else if (action === 'commandPalette') {
+        setPaletteOpen(true)
       } else if (action === 'focusChatSearch') {
         setSearchFocusRequest((n) => n + 1)
       } else {
@@ -151,14 +172,136 @@ function App() {
 
   const handleStartListening = useCallback(
     // Match the app language to a BCP-47 tag the recogniser accepts. Falling through to
-  // `en-US` for Chinese would mean dictation is transcribed in the wrong language.
-  () => voiceEngine.startListening(RECOGNITION_LOCALE[config.language] ?? 'en-US'),
+    // `en-US` for Chinese would mean dictation is transcribed in the wrong language.
+    () => voiceEngine.startListening(RECOGNITION_LOCALE[config.language] ?? 'en-US'),
     [voiceEngine.startListening, config.language]
   )
 
+  const handleNewChat = useCallback(() => {
+    createChat()
+    setView('chat')
+  }, [createChat])
+
+  /** Private chats never reach `chats.json` (see the save effect in useChat). */
+  const handleNewPrivateChat = useCallback(() => {
+    createChat({ ephemeral: true })
+    setView('chat')
+  }, [createChat])
+
+  const handleEditMessage = useCallback(
+    (messageId: string, content: string) => {
+      void editAndResend(messageId, content, config, t)
+    },
+    [editAndResend, config, t],
+  )
+
+  const handleRegenerate = useCallback(() => {
+    void regenerate(config)
+  }, [regenerate, config])
+
+  /**
+   * Download the current chat as Markdown.
+   *
+   * A Blob URL plus an anchor is the whole mechanism — no main-process IPC needed, and
+   * the browser's download handling gives the user a normal save dialog.
+   */
+  const handleExport = useCallback(() => {
+    if (!activeChat) return
+    const markdown = buildChatMarkdown(activeChat, {
+      assistantName: 'Kora',
+      userLabel: t.chat.you,
+    })
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = exportFileName(activeChat.title || t.chat.untitled)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  }, [activeChat, t])
+
+  // Saved prompts first; before the user saves any, four localized starters keep the
+  // empty chat from being a dead end.
+  const suggestions = useMemo<PromptSuggestion[]>(() => {
+    const saved = (config.savedPrompts ?? []).map((prompt) => ({
+      id: prompt.id,
+      title: prompt.title,
+      prompt: prompt.prompt,
+    }))
+    if (saved.length > 0) return saved
+    return [
+      { id: 'explain', title: t.promptLib.explainTitle, prompt: t.promptLib.explainPrompt },
+      { id: 'summarize', title: t.promptLib.summarizeTitle, prompt: t.promptLib.summarizePrompt },
+      { id: 'translate', title: t.promptLib.translateTitle, prompt: t.promptLib.translatePrompt },
+      { id: 'brainstorm', title: t.promptLib.brainstormTitle, prompt: t.promptLib.brainstormPrompt },
+    ]
+  }, [config.savedPrompts, t])
+
+  const providerName = PROVIDERS.find((provider) => provider.id === config.provider)?.name ?? config.provider
+  const modelLabel = config.selectedModel || config.apiModel || providerName
+
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const items: PaletteItem[] = [
+      { id: 'new-chat', group: 'actions', label: t.palette.newChat, hint: 'Ctrl+N', run: handleNewChat },
+      { id: 'new-private', group: 'actions', label: t.palette.newPrivateChat, hint: t.chat.privateHint, run: handleNewPrivateChat },
+      { id: 'settings', group: 'actions', label: t.palette.settings, run: () => setShowSettings(true) },
+      { id: 'system', group: 'actions', label: t.palette.system, run: () => setShowSystem(true) },
+      { id: 'agent', group: 'actions', label: t.palette.agent, run: () => setShowAgent(true) },
+      { id: 'graph', group: 'actions', label: t.palette.graph, run: () => setView('graph') },
+    ]
+
+    if (activeChat) {
+      if (activeChat.messages.length > 0) {
+        items.push({ id: 'export', group: 'actions', label: t.palette.export, run: handleExport })
+      }
+      items.push({
+        id: 'pin',
+        group: 'actions',
+        label: activeChat.pinned ? t.palette.unpin : t.palette.pin,
+        run: () => togglePin(activeChat.id),
+      })
+      if (!isLoading && activeChat.messages.some((message) => message.role === 'assistant')) {
+        items.push({ id: 'regenerate', group: 'actions', label: t.palette.regenerate, run: handleRegenerate })
+      }
+    }
+
+    for (const chat of chats) {
+      if (chat.id === activeChatId) continue
+      items.push({
+        id: `chat-${chat.id}`,
+        group: 'chats',
+        label: chat.title,
+        hint: chat.messages[0]?.content.slice(0, 80),
+        keywords: chat.messages.map((message) => message.content).join(' ').slice(0, 2000),
+        run: () => {
+          setActiveChatId(chat.id)
+          setView('chat')
+        },
+      })
+    }
+
+    for (const suggestion of suggestions) {
+      items.push({
+        id: `prompt-${suggestion.id}`,
+        group: 'prompts',
+        label: suggestion.title,
+        hint: suggestion.prompt.replace(/\s+/g, ' ').slice(0, 90),
+        keywords: suggestion.prompt,
+        run: () => pushDraft(suggestion.prompt),
+      })
+    }
+
+    return items
+  }, [
+    activeChat, activeChatId, chats, handleExport, handleNewChat, handleNewPrivateChat,
+    handleRegenerate, isLoading, pushDraft, suggestions, t, togglePin,
+  ])
+
   return (
     <div className="h-screen flex flex-col bg-kora-bg text-kora-text" data-theme={config.theme}>
-      <TitleBar />
+      <TitleBar lang={config.language} />
 
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
@@ -170,12 +313,10 @@ function App() {
             setActiveChatId(id)
             setView('chat')
           }}
-          onCreateChat={() => {
-            createChat()
-            setView('chat')
-          }}
+          onCreateChat={handleNewChat}
           onDeleteChat={deleteChat}
           onRenameChat={renameChat}
+          onTogglePin={togglePin}
           onOpenSettings={() => setShowSettings(true)}
           onOpenSystem={() => setShowSystem(true)}
           onOpenAgent={() => setShowAgent(true)}
@@ -214,9 +355,28 @@ function App() {
             onStopListening={voiceEngine.stopListening}
             speechInterim={voiceEngine.isListening ? speechInterim : ''}
             onStopGenerate={stopGeneration}
+            title={activeChat?.title}
+            modelLabel={modelLabel}
+            pinned={activeChat?.pinned}
+            isPrivate={activeChat?.ephemeral}
+            onTogglePin={() => activeChat && togglePin(activeChat.id)}
+            onCreatePrivate={handleNewPrivateChat}
+            onExport={handleExport}
+            suggestions={suggestions}
+            onPickPrompt={pushDraft}
+            insertRequest={insertRequest}
+            onEditMessage={handleEditMessage}
+            onRegenerate={handleRegenerate}
           />
         )}
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        lang={config.language}
+        items={paletteItems}
+        onClose={() => setPaletteOpen(false)}
+      />
 
       {showSettings && (
         <Settings

@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { MCPManager } from '../services/mcp/manager'
-import { MCPServerConfig } from '../services/mcp/config'
+import { MCPServerConfig, launchSpecForPackage } from '../services/mcp/config'
 
 /**
  * IPC surface of the MCP manager, consumed by the settings UI and the agent.
@@ -108,4 +108,66 @@ export function registerMCPHandlers(getWindow: () => BrowserWindow | null, manag
   })
 
   ipcMain.handle('mcp:diagnostics', (_event, id: string) => manager.getDiagnostics(id) ?? null)
+
+  /**
+   * Install an MCP server from an npm package and start it.
+   *
+   * The agent can reach this through the `mcp_manage` tool, so the package
+   * name is validated hard: it must look like an npm package (optionally
+   * scoped), because it ends up as an argument to npx. Environment variables
+   * are accepted for credentials, but the ones that would change how the child
+   * process is launched (PATH, NODE_OPTIONS, …) are dropped — the agent could
+   * otherwise point the server at its own code.
+   */
+  ipcMain.handle(
+    'mcp:install',
+    async (
+      _event,
+      spec: {
+        package?: string
+        id?: string
+        name?: string
+        args?: string[]
+        env?: Record<string, string>
+        autoStart?: boolean
+      },
+    ) => {
+      try {
+        const pkg = String(spec?.package ?? '').trim()
+        if (!/^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i.test(pkg)) {
+          return { success: false, error: 'Invalid npm package name' }
+        }
+        const extra = Array.isArray(spec?.args)
+          ? spec.args.filter((a): a is string => typeof a === 'string').slice(0, 16)
+          : []
+        const launch = launchSpecForPackage(pkg, extra)
+        const blocked = new Set(['PATH', 'NODE_OPTIONS', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'ELECTRON_RUN_AS_NODE'])
+        const env: Record<string, string> = {}
+        for (const [k, v] of Object.entries(spec?.env ?? {})) {
+          if (typeof v !== 'string' || blocked.has(k.toUpperCase())) continue
+          env[k] = v
+        }
+        const id = String(spec?.id ?? pkg)
+          .replace(/[^a-zA-Z0-9_-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 64) || 'mcp-server'
+        const server: MCPServerConfig = {
+          id,
+          name: String(spec?.name ?? pkg).slice(0, 80),
+          command: launch.command,
+          args: launch.args,
+          env: Object.keys(env).length > 0 ? { ...launch.env, ...env } : launch.env,
+          enabled: true,
+          autoStart: spec?.autoStart !== false,
+          description: `Installed from npm: ${pkg}`,
+        }
+        await manager.upsertServer(server)
+        const status = await manager.startServer(id)
+        const tools = await manager.getAllTools()
+        return { success: true, status, tools: tools.filter((t) => t.serverId === id) }
+      } catch (err) {
+        return { success: false, error: (err as Error).message }
+      }
+    },
+  )
 }

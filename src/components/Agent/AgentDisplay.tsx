@@ -122,6 +122,8 @@ export function AgentDisplay({ lang, config, show, onClose }: AgentDisplayProps)
           <h2 className="text-lg font-semibold text-kora-text">{t.agent.title}</h2>
           <button
             onClick={onClose}
+            aria-label={t.titleBar.close}
+            title={t.titleBar.close}
             className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -179,7 +181,7 @@ export function AgentDisplay({ lang, config, show, onClose }: AgentDisplayProps)
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t.agent.inputPlaceholder}
-                className="flex-1 bg-kora-card border border-kora-border rounded-xl px-3 py-2 text-sm text-kora-text focus:outline-none focus:border-kora-accent transition-colors"
+                className="flex-1 bg-kora-card border border-kora-border rounded-xl px-3 py-2 text-sm text-kora-text focus:border-kora-accent transition-colors"
                 disabled={isRunning}
               />
               {isRunning ? (

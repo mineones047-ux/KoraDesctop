@@ -180,6 +180,19 @@ export function useReActAgent() {
   const [result, setResult] = useState<ReActResult | null>(null)
   const [liveTranscript, setLiveTranscript] = useState('')
 
+  /**
+   * The user's approval policy. 'ask' when the config cannot be read — the
+   * safe default is always to ask.
+   */
+  const currentApprovalMode = useCallback(async (): Promise<'ask' | 'readonly' | 'full'> => {
+    try {
+      const mode = (await window.kora.config.get()).agentApprovalMode
+      return mode === 'readonly' || mode === 'full' ? mode : 'ask'
+    } catch {
+      return 'ask'
+    }
+  }, [])
+
   const runningRef = useRef(false)
   const abortRef = useRef(false)
   const stepRef = useRef(0)
@@ -543,9 +556,27 @@ export function useReActAgent() {
       typeof toolResult === 'object' &&
       (toolResult as { status?: string }).status === 'pending_confirmation'
     ) {
-      pendingToolRef.current = { tool, parameters }
-      requestConfirmation('tool', { tool, parameters })
-      return
+      // Approval policy (Settings → Behaviour): 'ask' pauses for the user,
+      // 'full' approves automatically, 'readonly' refuses anything that
+      // changes the system. A tool only reaches this branch when it is
+      // marked as needing confirmation, i.e. it is a mutating one.
+      const mode = await currentApprovalMode()
+      if (mode === 'full') {
+        try {
+          toolResult = await agentRegistry.execute(tool, parameters, { approved: true })
+        } catch (err) {
+          toolResult = { success: false, error: (err as Error).message }
+        }
+      } else if (mode === 'readonly') {
+        toolResult = {
+          success: false,
+          error: `Approval mode is READ-ONLY: "${tool}" changes the system and was refused. Read-only tools still work — or ask the user to switch the mode in Settings.`,
+        }
+      } else {
+        pendingToolRef.current = { tool, parameters }
+        requestConfirmation('tool', { tool, parameters })
+        return
+      }
     }
 
     await observeStep(toolResult, `Result of ${tool}`)

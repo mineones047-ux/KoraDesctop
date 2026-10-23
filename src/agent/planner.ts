@@ -43,6 +43,9 @@ export type BuiltinToolId =
   | 'ai_test_connection'
   | 'tts_synthesize'
   | 'tts_voices'
+  | 'skill'
+  | 'mcp_servers'
+  | 'mcp_manage'
 
 /** A tool id: either a built-in, or an MCP tool named `mcp__<server>__<tool>`.
  *  The template-literal arm is what lets the agent discover new tools at runtime without

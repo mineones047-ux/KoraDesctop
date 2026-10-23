@@ -35,6 +35,8 @@ export function SystemMonitor({ lang, info, processes, onClose }: SystemMonitorP
           <h2 className="text-lg font-semibold text-kora-text">{t.system.title}</h2>
           <button
             onClick={onClose}
+            aria-label={t.titleBar.close}
+            title={t.titleBar.close}
             className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-kora-card text-kora-muted hover:text-kora-text transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

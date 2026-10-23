@@ -72,6 +72,17 @@ export interface Chat {
   messages: Message[]
   createdAt: number
   updatedAt: number
+  /** Pinned chats stay on top of the sidebar list. */
+  pinned?: boolean
+  /** Private chats are never written to `chats.json`. */
+  ephemeral?: boolean
+}
+
+/** A reusable prompt the user saved from Settings → Prompts. */
+export interface SavedPrompt {
+  id: string
+  title: string
+  prompt: string
 }
 
 export interface SystemInfo {
@@ -229,6 +240,20 @@ export interface ConfigData {
   whisperPath?: string
   /** Path to a ggml model file (e.g. ggml-base.bin). */
   whisperModel?: string
+  /** Agent confirmation policy: per-call prompts ('ask', default), no mutations ('readonly'), or auto-approve ('full'). */
+  agentApprovalMode?: 'ask' | 'readonly' | 'full'
+  /** llama.cpp launch: -1 = engine default, 0 = CPU only, N = offload N layers. */
+  llamacppGpuLayers?: number
+  /** llama.cpp context window (-c), 4096 by default. */
+  llamacppCtxSize?: number
+  /** Start Kora when the OS logs the user in. */
+  autoLaunchApp?: boolean
+  /** `repoId/file` served by llama-server right after launch ('' = nothing). */
+  autoStartChatModel?: string
+  /** whisper model file fetched at launch if missing ('' = nothing). */
+  autoStartSttModel?: string
+  /** Reusable prompts, managed in Settings → Prompts and offered in the empty chat. */
+  savedPrompts?: SavedPrompt[]
 }
 
 export interface ObsidianNode {
@@ -285,6 +310,7 @@ declare global {
         stat: (path: string) => Promise<{ size: number; isDirectory: boolean; isFile: boolean; created: string; modified: string }>
         exists: (path: string) => Promise<{ exists: boolean }>
         findFiles: (pattern: string, options?: { searchDir?: string; maxResults?: number; maxDepth?: number }) => Promise<{ success: boolean; error?: string; results: string[]; count: number }>
+        installSkill: (url: string) => Promise<{ success: boolean; path?: string; name?: string; error?: string }>
       }
       shell: {
         execute: (command: string, options?: { bypassDangerCheck?: boolean }) => Promise<{ stdout: string; stderr: string; success: boolean; blocked?: boolean; requiresConfirmation?: boolean }>
@@ -331,6 +357,8 @@ declare global {
         setEnabled: (id: string, enabled: boolean) => Promise<{ success: boolean; status?: MCPServerStatus; error?: string }>
         call: (fullName: string, args: Record<string, unknown>) => Promise<{ success: boolean; result?: unknown; error?: string }>
         diagnostics: (id: string) => Promise<unknown>
+        /** Install an MCP server from an npm package and start it. */
+        install: (spec: { package: string; id?: string; name?: string; args?: string[]; env?: Record<string, string>; autoStart?: boolean }) => Promise<{ success: boolean; status?: MCPServerStatus; tools?: MCPToolWithServer[]; error?: string }>
         onChanged: (callback: (servers: MCPServerStatus[]) => void) => () => void
       }
       obsidian: {
@@ -342,8 +370,15 @@ declare global {
         profile: () => Promise<{ profile: PcProfileInfo; recommendation: LocalAIRecommendation }>
         search: (query: string) => Promise<{ success: boolean; models: HfModelEntry[]; error?: string }>
         files: (repoId: string) => Promise<{ success: boolean; files: HfGgufFile[]; error?: string }>
+        downloadStt: (file: string) => Promise<{ success: boolean; path?: string; error?: string }>
+        scanDisks: () => Promise<{ success: boolean; found: { path: string; sizeBytes: number }[]; error?: string }>
+        startExternal: (path: string) => Promise<{ success: boolean; modelId?: string | null; external?: boolean; port?: number; error?: string }>
         download: (repoId: string, file: string) => Promise<{ success: boolean; model?: DownloadedModel; error?: string }>
         cancel: (repoId: string, file: string) => Promise<{ success: boolean }>
+        /** Pause a running download; the partial file stays on disk and resumes later. */
+        pause: (repoId: string, file: string) => Promise<{ success: boolean }>
+        /** Bytes already downloaded per file (paused/interrupted downloads). */
+        partials: (repoId: string) => Promise<{ success: boolean; partials: { file: string; bytes: number }[]; error?: string }>
         list: () => Promise<{ success: boolean; models: DownloadedModel[] }>
         remove: (repoId: string, file: string) => Promise<{ success: boolean; error?: string }>
         engineStatus: () => Promise<{ success: boolean; status: EngineStatusInfo }>
@@ -351,6 +386,9 @@ declare global {
         start: (repoId: string, file: string) => Promise<{ success: boolean; modelId?: string | null; external?: boolean; port?: number; error?: string }>
         stop: () => Promise<{ success: boolean; stopped?: boolean; external?: boolean; error?: string }>
         onProgress: (callback: (payload: LocalAIProgress) => void) => () => void
+      }
+      app: {
+        setAutoLaunch: (enabled: boolean) => Promise<{ success: boolean; enabled?: boolean; error?: string }>
       }
     }
   }
@@ -420,7 +458,7 @@ export interface LocalAIProgress {
   file?: string
   received?: number
   total?: number
-  state: 'running' | 'done' | 'error' | 'canceled' | 'stopped'
+  state: 'running' | 'done' | 'error' | 'paused' | 'stopped'
   error?: string
   model?: DownloadedModel
   exitCode?: number | null

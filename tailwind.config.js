@@ -26,6 +26,18 @@ export default {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
+      borderRadius: {
+        field: 'var(--kora-radius-field)',
+        card: 'var(--kora-radius-card)',
+        panel: 'var(--kora-radius-panel)',
+      },
+      boxShadow: {
+        panel: 'var(--kora-shadow-panel)',
+        pop: 'var(--kora-shadow-pop)',
+      },
+      transitionTimingFunction: {
+        kora: 'cubic-bezier(0.2, 0, 0, 1)',
+      },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'fade-in': 'fadeIn 0.3s ease-out',

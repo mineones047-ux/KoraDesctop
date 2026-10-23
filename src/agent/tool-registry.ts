@@ -266,6 +266,41 @@ export const BUILTIN_TOOL_METADATA: Record<BuiltinToolId, ToolMetadata> = {
     requiresConfirmation: false,
     parameters: [],
   },
+  skill: {
+    id: 'skill',
+    name: 'Agent Skills',
+    description: 'Install (download a SKILL.md from an https URL), list, or read an agent skill from ~/.kora/skills',
+    requiresConfirmation: true,
+    parameters: [
+      { name: 'action', type: 'string', required: true, description: 'install | list | read' },
+      { name: 'url', type: 'string', required: false, description: 'https URL of a SKILL.md (for install)' },
+      { name: 'name', type: 'string', required: false, description: 'Skill directory name (for read)' },
+    ],
+  },
+  mcp_servers: {
+    id: 'mcp_servers',
+    name: 'MCP Servers (read-only)',
+    description: 'List the configured MCP servers with their status, or list the tools one server exposes',
+    requiresConfirmation: false,
+    parameters: [
+      { name: 'server', type: 'string', required: false, description: 'Server id — omit to list all servers' },
+    ],
+  },
+  mcp_manage: {
+    id: 'mcp_manage',
+    name: 'MCP Servers (manage)',
+    description:
+      'Install an MCP server from npm, start/stop/enable/disable/remove one, or call a tool it exposes',
+    requiresConfirmation: true,
+    parameters: [
+      { name: 'action', type: 'string', required: true, description: 'install | start | stop | enable | disable | remove | call' },
+      { name: 'package', type: 'string', required: false, description: 'npm package name (for install), e.g. @modelcontextprotocol/server-github' },
+      { name: 'id', type: 'string', required: false, description: 'Server id (for start/stop/enable/disable/remove)' },
+      { name: 'tool', type: 'string', required: false, description: 'Full tool id, mcp__<server>__<tool> (for call)' },
+      { name: 'arguments', type: 'string', required: false, description: 'JSON object with the tool arguments (for call)' },
+      { name: 'env', type: 'string', required: false, description: 'JSON object of environment variables for the server (for install)' },
+    ],
+  },
 }
 
 // MCP tool metadata (separate from built-in to allow dynamic updates)
@@ -338,6 +373,25 @@ function str(v: unknown, fallback = ''): string {
 /** Same for numbers, rejecting `NaN` — which would otherwise flow into a size limit. */
 function num(v: unknown, fallback: number): number {
   return typeof v === 'number' && !isNaN(v) ? v : fallback
+}
+
+/**
+ * Parse a JSON object the model passed as a string.
+ *
+ * Parameters are typed as strings in the tool schema, so a nested object has
+ * to travel as JSON text. Anything that is not a JSON object becomes empty
+ * rather than throwing — the tool reports the problem in its own result.
+ */
+function jsonObject(v: unknown): Record<string, unknown> {
+  if (typeof v !== 'string' || !v.trim()) return {}
+  try {
+    const parsed = JSON.parse(v)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
 }
 
 /** A directory listing row, narrowed here so the handlers don't depend on the IPC type. */
@@ -485,6 +539,118 @@ const handlers: Record<string, ToolHandler> = {
 
   tts_synthesize: async (params) => window.kora.tts.synthesize(str(params.text), str(params.voice, 'ru-RU-DmitryNeural')),
   tts_voices: async () => window.kora.tts.voices(),
+
+  /**
+   * Agent skills: directory-per-skill `SKILL.md` files under ~/.kora/skills.
+   * install fetches through the SSRF-guarded main-process handler; list/read are
+   * plain fs reads so the loop can look up a playbook before using it.
+   */
+  skill: async (params) => {
+    const action = str(params.action, 'list')
+    if (action === 'install') {
+      const r = await window.kora.fs.installSkill(str(params.url))
+      return r.success ? { success: true, installed: r.path } : { success: false, error: r.error }
+    }
+    const skillsRoot = '~/.kora/skills'
+    const listing = await window.kora.fs.readDir(skillsRoot)
+    const dirs = Array.isArray(listing) ? listing.filter((e: DirEntry) => e.isDirectory) : []
+    if (action === 'read') {
+      const wanted = str(params.name).replace(/[^a-zA-Z0-9_-]/g, '')
+      if (!wanted) return { success: false, error: 'name is required for read' }
+      await window.kora.fs.readDir(`${skillsRoot}/${wanted}`) // confirms existence before the read
+      return window.kora.fs.readFile(`${skillsRoot}/${wanted}/SKILL.md`)
+    }
+    return { skills: dirs.map((e: DirEntry) => ({ name: e.name, path: e.path })) }
+  },
+
+  /**
+   * MCP servers, read-only view: which servers exist, are they running, and
+   * what tools does one of them expose.
+   */
+  mcp_servers: async (params) => {
+    const server = str(params.server)
+    if (!server) {
+      const servers = await window.kora.mcp.list()
+      return {
+        servers: servers.map((s) => ({
+          id: s.id,
+          name: s.name,
+          enabled: s.enabled,
+          running: s.running,
+          toolCount: s.toolCount,
+          error: s.error,
+        })),
+      }
+    }
+    const r = await window.kora.mcp.listTools(server)
+    return {
+      tools: (r.tools ?? []).map((t) => ({
+        fullName: t.fullName,
+        name: t.name,
+        description: t.description,
+      })),
+    }
+  },
+
+  /**
+   * MCP servers, mutating side: install a server from npm, control the
+   * existing ones, or call one of their tools.
+   *
+   * `call` is dispatched through the registry, so a tool the server itself
+   * marked as destructive still has to clear the same check as before — the
+   * wrapper does not become a way around it.
+   */
+  mcp_manage: async (params, opts, registry) => {
+    const action = str(params.action, 'list')
+    const id = str(params.id)
+    switch (action) {
+      case 'install': {
+        const pkg = str(params.package)
+        if (!pkg) return { success: false, error: 'package is required for install' }
+        // Only string values can become environment variables.
+        const env: Record<string, string> = {}
+        for (const [k, v] of Object.entries(jsonObject(params.env))) {
+          if (typeof v === 'string') env[k] = v
+        }
+        const r = await window.kora.mcp.install({ package: pkg, env })
+        return r.success
+          ? {
+              success: true,
+              server: r.status,
+              tools: (r.tools ?? []).map((t) => t.fullName),
+            }
+          : { success: false, error: r.error }
+      }
+      case 'start': {
+        if (!id) return { success: false, error: 'id is required' }
+        const r = await window.kora.mcp.start(id)
+        return r.success ? { success: true, status: r.status } : { success: false, error: r.error }
+      }
+      case 'stop': {
+        if (!id) return { success: false, error: 'id is required' }
+        const r = await window.kora.mcp.stop(id)
+        return r.success ? { success: true, status: r.status } : { success: false, error: r.error }
+      }
+      case 'enable':
+      case 'disable': {
+        if (!id) return { success: false, error: 'id is required' }
+        const r = await window.kora.mcp.setEnabled(id, action === 'enable')
+        return r.success ? { success: true, status: r.status } : { success: false, error: r.error }
+      }
+      case 'remove': {
+        if (!id) return { success: false, error: 'id is required' }
+        const r = await window.kora.mcp.remove(id)
+        return { success: r.success, removed: r.success }
+      }
+      case 'call': {
+        const fullName = str(params.tool)
+        if (!fullName) return { success: false, error: 'tool is required for call' }
+        return registry.execute(fullName as ToolId, jsonObject(params.arguments), opts)
+      }
+      default:
+        return { success: false, error: `Unknown action: ${action}` }
+    }
+  },
 
   help: async (_params, _opts, registry) => ({
     tools: registry.listMetadata().map((m) => ({ id: m.id, name: m.name, description: m.description })),

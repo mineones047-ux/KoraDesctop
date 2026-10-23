@@ -11,9 +11,15 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ key: 'n', metaKey: true }, NOTHING_OPEN)).toBe('newChat')
   })
 
-  it('maps Ctrl+K and Cmd+K to focusing the chat search', () => {
-    expect(resolveShortcut({ key: 'k', ctrlKey: true }, NOTHING_OPEN)).toBe('focusChatSearch')
-    expect(resolveShortcut({ key: 'k', metaKey: true }, NOTHING_OPEN)).toBe('focusChatSearch')
+  it('maps Ctrl+K and Cmd+K to the command palette', () => {
+    expect(resolveShortcut({ key: 'k', ctrlKey: true }, NOTHING_OPEN)).toBe('commandPalette')
+    expect(resolveShortcut({ key: 'k', metaKey: true }, NOTHING_OPEN)).toBe('commandPalette')
+  })
+
+  it('keeps Shift+Ctrl+K for the sidebar filter', () => {
+    expect(resolveShortcut({ key: 'k', ctrlKey: true, shiftKey: true }, NOTHING_OPEN)).toBe('focusChatSearch')
+    // The palette is the intentional exception to the shift chord; nothing else moves.
+    expect(resolveShortcut({ key: 'n', ctrlKey: true, shiftKey: true }, NOTHING_OPEN)).toBeNull()
   })
 
   it('ignores plain typing so the composer keeps every letter', () => {
@@ -25,7 +31,6 @@ describe('resolveShortcut', () => {
   it('does not steal Alt or Shift chords', () => {
     expect(resolveShortcut({ key: 'n', ctrlKey: true, altKey: true }, NOTHING_OPEN)).toBeNull()
     expect(resolveShortcut({ key: 'n', ctrlKey: true, shiftKey: true }, NOTHING_OPEN)).toBeNull()
-    expect(resolveShortcut({ key: 'k', ctrlKey: true, shiftKey: true }, NOTHING_OPEN)).toBeNull()
   })
 
   it('closes the top layer on Escape only while something is open', () => {

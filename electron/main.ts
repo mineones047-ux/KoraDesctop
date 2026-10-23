@@ -20,7 +20,8 @@ import { registerTTSHandlers } from './ipc/tts'
 import { registerSTTHandlers } from './ipc/stt'
 import { registerMCPHandlers } from './ipc/mcp'
 import { registerObsidianHandlers } from './ipc/obsidian'
-import { registerLocalAIHandlers } from './ipc/localmodels'
+import { registerLocalAIHandlers, runStartupTasks } from './ipc/localmodels'
+import { registerSkillHandlers } from './ipc/skills'
 import { config, registerConfigHandlers } from './services/config'
 import { MCPConfig } from './services/mcp/config'
 import { MCPManager } from './services/mcp/manager'
@@ -172,6 +173,25 @@ app.whenReady().then(async () => {
       e.returnValue = mainWindow?.isMaximized() ?? false
     })
 
+    // Config: start Kora together with the OS session (user toggle in Settings).
+    // The saved setting is the source of truth, so it is re-applied on every
+    // launch: the toggle and the OS entry can never drift apart.
+    ipcMain.handle('app:setAutoLaunch', (_event, enabled: boolean) => {
+      try {
+        const on = !!enabled
+        app.setLoginItemSettings({ openAtLogin: on })
+        config.set('autoLaunchApp', on)
+        return { success: true, enabled: app.getLoginItemSettings().openAtLogin }
+      } catch (err) {
+        return { success: false, error: (err as Error).message }
+      }
+    })
+    try {
+      app.setLoginItemSettings({ openAtLogin: config.get().autoLaunchApp === true })
+    } catch (err) {
+      console.error('[KORA] auto-launch setup failed:', (err as Error).message)
+    }
+
     // Window first: heavyweight services must not delay first paint
     // (ROADMAP Phase 0, "lazy service init in main.ts").
     createWindow()
@@ -182,6 +202,11 @@ app.whenReady().then(async () => {
     registerMCPHandlers(() => mainWindow, mcpManager)
     registerObsidianHandlers()
     registerLocalAIHandlers(() => mainWindow)
+    registerSkillHandlers()
+
+    // Launch promises in the background: serve the configured chat model and
+    // make sure the configured whisper model is on disk (config autoStart*).
+    runStartupTasks()
 
     // MCP autostart continues in the background; quit stops whatever has
     // started (the manager's `disposed` flag aborts starts still in flight).

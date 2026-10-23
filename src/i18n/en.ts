@@ -1,18 +1,26 @@
 export interface Translations {
   app: { name: string }
-  sidebar: { newChat: string; search: string; noResults: string; noChats: string; result: string; resultFew: string; results: string; systemMonitor: string; settings: string; agent: string; graph: string; chatView: string; renameChat: string; deleteChat: string }
+  titleBar: { minimize: string; maximize: string; close: string }
+  sidebar: { newChat: string; search: string; noResults: string; noChats: string; result: string; resultFew: string; results: string; systemMonitor: string; settings: string; agent: string; graph: string; chatView: string; renameChat: string; deleteChat: string; pin: string; unpin: string; pinned: string; today: string; yesterday: string; week: string; older: string }
   graph: {
     notes: string; noteOne: string; noteFew: string; loading: string; pickVault: string; retry: string; empty: string
     close: string; sendToChat: string; readError: string; truncated: string
     zoomIn: string; zoomOut: string; fitView: string
   }
-  chat: { placeholder: string; send: string }
+  chat: {
+    placeholder: string; send: string
+    untitled: string; private: string; privateHint: string; you: string
+    export: string; exported: string
+    pin: string; unpin: string
+    regenerate: string; edit: string; save: string; cancel: string
+  }
   inputBar: {
     commands: string; navigate: string; select: string; close: string
     volume: string
     stopSpeaking: string; readLast: string
     startRecording: string; stopRecording: string
     stopGenerating: string
+    tokens: string; shortcuts: string
   }
   message: {
     stop: string
@@ -21,6 +29,24 @@ export interface Translations {
     copied: string
     copyCode: string
     codeCopied: string
+    edit: string
+    regenerate: string
+    save: string
+    cancel: string
+  }
+  promptLib: {
+    title: string; desc: string; add: string; namePlaceholder: string; textPlaceholder: string
+    save: string; empty: string; delete: string; use: string; suggestTitle: string
+    explainTitle: string; explainPrompt: string
+    summarizeTitle: string; summarizePrompt: string
+    translateTitle: string; translatePrompt: string
+    brainstormTitle: string; brainstormPrompt: string
+  }
+  palette: {
+    title: string; placeholder: string; actions: string; chats: string; prompts: string
+    newChat: string; newPrivateChat: string; settings: string; system: string; agent: string
+    graph: string; export: string; pin: string; unpin: string; regenerate: string
+    empty: string; noResults: string; close: string
   }
   settings: {
     title: string; provider: string; lmstudioUrl: string; model: string
@@ -33,7 +59,7 @@ export interface Translations {
     testConnection: string; testing: string
     connectionSuccess: string; connectionError: string
     language: string; languageDesc: string
-    tabs: { customize: string; provider: string; prompt: string; voice: string; mcp: string; local: string }
+    tabs: { customize: string; provider: string; prompt: string; voice: string; mcp: string; local: string; prompts: string }
     theme: string; themeDesc: string; themeDark: string; themeRed: string
     themeDarkDesc: string; themeRedDesc: string; themeLight: string; themeLightDesc: string
     themeRetro: string; themeRetroDesc: string
@@ -51,6 +77,9 @@ export interface Translations {
     decisionModelPlaceholder: string; decisionHint: string
     urlDesc: string
     vaultPath: string; vaultPathDesc: string; pickFolder: string
+    behaviorTitle: string; approvalModeLabel: string; approvalModeDesc: string
+    approvalAsk: string; approvalReadonly: string; approvalFull: string
+    autoLaunchLabel: string; autoLaunchDesc: string
   }
   danger: {
     title: string; hint: string
@@ -81,7 +110,16 @@ export interface Translations {
     noResults: string; searchError: string; filesError: string
     recommended: string; fits: string; downloads: string; files: string
     download: string; cancel: string; delete: string; deleteSure: string
+    pause: string; resume: string; resumeHint: string
     noModels: string; modelsTitle: string
+    categoryText: string; categoryAudio: string
+    notFits: string
+    audioTitle: string; audioDesc: string; audioTtsNote: string
+    whisperBinaryNote: string; audioUse: string; audioActive: string
+    engineGpu: string; engineGpuHint: string; engineCtx: string
+    autoStartChat: string; autoStartStt: string
+    diskTitle: string; diskDesc: string; diskScan: string; diskSearching: string
+    diskNone: string; diskUse: string
     start: string; stop: string; starting: string; running: string; externalServer: string
     engineTitle: string; engineDesc: string; engineInstall: string
     engineInstalling: string; engineReady: string; engineMissing: string
@@ -124,6 +162,11 @@ const en: Translations = {
   app: {
     name: 'Kora',
   },
+  titleBar: {
+    minimize: 'Minimize',
+    maximize: 'Maximize',
+    close: 'Close',
+  },
   sidebar: {
     newChat: 'New Chat',
     search: 'Search chats...',
@@ -139,6 +182,13 @@ const en: Translations = {
     graph: 'Knowledge Graph',
     renameChat: 'Rename chat',
     deleteChat: 'Delete chat',
+    pin: 'Pin chat',
+    unpin: 'Unpin chat',
+    pinned: 'Pinned',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    week: 'Previous 7 days',
+    older: 'Older',
   },
   graph: {
     notes: 'notes',
@@ -157,8 +207,20 @@ const en: Translations = {
     fitView: 'Fit graph to screen',
   },
   chat: {
-    placeholder: 'Type ! for commands...',
+    placeholder: 'Ask anything, or type ! for commands...',
     send: 'Send',
+    untitled: 'New chat',
+    private: 'Private',
+    privateHint: 'This chat is not saved to disk',
+    you: 'You',
+    export: 'Export as Markdown',
+    exported: 'Saved!',
+    pin: 'Pin chat',
+    unpin: 'Unpin chat',
+    regenerate: 'Regenerate',
+    edit: 'Edit message',
+    save: 'Save',
+    cancel: 'Cancel',
   },
   inputBar: {
     commands: 'Commands',
@@ -171,6 +233,8 @@ const en: Translations = {
     startRecording: 'Start voice input',
     stopRecording: 'Stop recording',
     stopGenerating: 'Stop generating',
+    tokens: '~{count} tokens',
+    shortcuts: 'Ctrl+K commands · Enter send · Shift+Enter new line',
   },
   message: {
     stop: 'Stop',
@@ -179,6 +243,50 @@ const en: Translations = {
     copied: 'Copied',
     copyCode: 'Copy code',
     codeCopied: 'Code copied',
+    edit: 'Edit message',
+    regenerate: 'Regenerate reply',
+    save: 'Save and resend',
+    cancel: 'Cancel',
+  },
+  promptLib: {
+    title: 'Prompt library',
+    desc: 'Save the instructions you retype often. They appear in a new chat and in the command palette.',
+    add: 'Add prompt',
+    namePlaceholder: 'Title, e.g. Code review',
+    textPlaceholder: 'The full prompt text...',
+    save: 'Save prompt',
+    empty: 'No saved prompts yet. Add one below — or use a suggestion in a new chat.',
+    delete: 'Delete prompt',
+    use: 'Use prompt',
+    suggestTitle: 'Try one of these',
+    explainTitle: 'Explain this',
+    explainPrompt: 'Explain this step by step, then point out the risky parts:\n\n',
+    summarizeTitle: 'Summarize',
+    summarizePrompt: 'Summarize the following text in five bullet points:\n\n',
+    translateTitle: 'Translate',
+    translatePrompt: 'Translate the following text into English, keeping its tone:\n\n',
+    brainstormTitle: 'Brainstorm',
+    brainstormPrompt: 'Give me five concrete ideas about: ',
+  },
+  palette: {
+    title: 'Command palette',
+    placeholder: 'Search chats, actions and prompts...',
+    actions: 'Actions',
+    chats: 'Chats',
+    prompts: 'Prompts',
+    newChat: 'New chat',
+    newPrivateChat: 'New private chat',
+    settings: 'Open settings',
+    system: 'System monitor',
+    agent: 'Agent mode',
+    graph: 'Knowledge graph',
+    export: 'Export current chat as Markdown',
+    pin: 'Pin current chat',
+    unpin: 'Unpin current chat',
+    regenerate: 'Regenerate last reply',
+    empty: 'Nothing matches that search',
+    noResults: 'No results',
+    close: 'Close',
   },
   settings: {
     title: 'Settings',
@@ -225,6 +333,7 @@ const en: Translations = {
       voice: 'Voice',
       mcp: 'MCP Servers',
       local: 'Local AI',
+      prompts: 'Prompts',
     },
     theme: 'Theme',
     themeDesc: 'Choose the look and feel of the app',
@@ -258,6 +367,14 @@ const en: Translations = {
     apiKeyDesc: 'Required for cloud providers. Stored locally on your PC.',
     urlDesc: 'Server address. Leave default if you use the official service',
     vaultPath: 'Obsidian vault',
+    behaviorTitle: 'Behaviour',
+    approvalModeLabel: 'Confirmation policy',
+    approvalModeDesc: 'How the agent asks before it changes anything on this PC.',
+    approvalAsk: 'Ask every time',
+    approvalReadonly: 'Read-only',
+    approvalFull: 'Allow everything',
+    autoLaunchLabel: 'Start Kora with the system',
+    autoLaunchDesc: 'Launch the app when you log in to Windows.',
     vaultPathDesc: 'Path to your Obsidian vault. Used by the Knowledge Graph to build the note map.',
     pickFolder: 'Choose folder',
   },
@@ -338,6 +455,9 @@ const en: Translations = {
     files: 'GGUF files',
     download: 'Download',
     cancel: 'Cancel',
+    pause: 'Pause',
+    resume: 'Resume',
+    resumeHint: 'Continue the interrupted download from the byte it stopped at',
     delete: 'Delete',
     deleteSure: 'Really delete?',
     noModels: 'No models downloaded yet — search above',
@@ -355,6 +475,26 @@ const en: Translations = {
     engineMissing: 'Engine not installed',
     engineMissingErr: 'The llama.cpp engine is not installed — download it first.',
     modelLoaded: 'Loaded {name} — provider switched to llama.cpp',
+    categoryText: 'Text models (LLM)',
+    categoryAudio: 'Audio (STT / TTS)',
+    notFits: "Won't fit · needs {size} free",
+    audioTitle: 'Speech recognition (STT)',
+    audioDesc: 'whisper.cpp models for offline dictation. Bigger means more accurate; the fit check uses your RAM.',
+    audioTtsNote: 'Text-to-speech needs no download: it already runs on the built-in TTS engine (Settings → Voice).',
+    whisperBinaryNote: 'Dictation also needs the whisper.cpp binary path — set it in Settings → Voice.',
+    audioUse: 'Download',
+    audioActive: 'Active ✓',
+    engineGpu: 'GPU layers',
+    engineGpuHint: '0 = CPU only, empty = engine default',
+    engineCtx: 'Context',
+    autoStartChat: 'Load on app start',
+    autoStartStt: 'Fetch on app start',
+    diskTitle: 'Models already on this PC',
+    diskDesc: 'Kora searches your drives for .gguf files and can serve one as is — no re-download.',
+    diskScan: 'Scan drives',
+    diskSearching: 'Scanning…',
+    diskNone: 'No .gguf models found (depth 3, ~8 s budget).',
+    diskUse: 'Serve',
     serverStopped: 'Server stopped',
     serverExited: 'Server exited unexpectedly (code {code})',
   },

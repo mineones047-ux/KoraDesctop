@@ -486,7 +486,7 @@ export function MCPSettings({ lang }: MCPSettingsProps) {
                   value={editing.env}
                   onChange={(e) => setEditing({ ...editing, env: e.target.value })}
                   rows={3}
-                  className="w-full bg-kora-card border border-kora-border rounded-xl px-3 py-2 text-xs text-kora-text font-mono focus:outline-none focus:border-kora-accent"
+                  className="w-full bg-kora-card border border-kora-border rounded-xl px-3 py-2 text-xs text-kora-text font-mono focus:border-kora-accent"
                   placeholder="API_KEY=sk-..."
                 />
               </div>
@@ -563,7 +563,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full bg-kora-card border border-kora-border rounded-xl px-3 py-2 text-xs text-kora-text font-mono focus:outline-none focus:border-kora-accent"
+        className="w-full bg-kora-card border border-kora-border rounded-xl px-3 py-2 text-xs text-kora-text font-mono focus:border-kora-accent"
       />
     </div>
   )

@@ -31,7 +31,7 @@ const DEFAULT_CONFIG: MCPConfigFile = {
 
 const isWindows = process.platform === 'win32'
 
-type Launch = { command: string; args: string[]; env?: Record<string, string> }
+export type Launch = { command: string; args: string[]; env?: Record<string, string> }
 
 /** Project root: app.asar (packaged) or the repo dir (dev). */
 function appRoot(): string {
@@ -98,6 +98,21 @@ function npxLaunch(s: MCPServerConfig): { pkg: string; extra: string[] } | null 
   const head = s.command === 'npx' ? 0 : s.command === 'cmd' && a[0] === '/c' && a[1] === 'npx' ? 2 : -1
   if (head === -1 || a[head] !== '-y' || !a[head + 1]) return null
   return { pkg: a[head + 1], extra: a.slice(head + 2) }
+}
+
+/**
+ * Launch spec for an npm package.
+ *
+ * The app's own bundled copy wins (one process, no npx); anything else falls
+ * back to `npx -y <pkg>`, which downloads the package on first run. This is
+ * how a server that does not ship with Kora gets installed.
+ */
+export function launchSpecForPackage(pkg: string, extra: string[] = []): Launch {
+  const local = localLaunch(pkg, extra)
+  if (local) return local
+  return isWindows
+    ? { command: 'cmd', args: ['/c', 'npx', '-y', pkg, ...extra] }
+    : { command: 'npx', args: ['-y', pkg, ...extra] }
 }
 
 /**
